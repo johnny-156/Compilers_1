@@ -1,0 +1,86 @@
+package rs.ac.bg.etf.pp1;
+
+import rs.etf.pp1.mj.runtime.Code;
+import rs.etf.pp1.symboltable.Tab;
+import rs.etf.pp1.symboltable.concepts.*;
+
+public class Helper {
+	
+	public static Obj getObj(String objName) { //koristimo je i za dohvatanje metode i designatora	
+		return getObjByNamespace(objName, CodeGenerator.namespaceObj); //da ne bi radili prosledjivanje, mi uzmemo i zalepimo ovde da je to polje od CodeGenerator
+	}
+	
+	public static Obj getObjByNamespace(String objName, Obj namespaceObj) {
+		Obj obj = null;	
+		
+		if (namespaceObj != null) { //ako je nesto sto trazimo unutar namespace
+			
+			for ( Obj o : namespaceObj.getLocalSymbols() ) { //iteriramo kroz lokalne simbole u namespace
+				if (o.getName().equals(objName)) {
+					obj = o;
+				}
+			}			
+			
+			if(obj == null) { //ako object nije pronadjen, onda trazimo medju lokalnim simbolima
+				obj = findInTheWidestScope(objName); //pretrazivanje u sirem opsegu, moze otici iznad opsega programa, npr za eol
+			}
+			
+		} else { //onda to nesto sto trazimo nije u namespace, vec u globalnom scope
+			
+			if (CodeGenerator.methodObj == null) { //ako metoda u tom trenutku ne postoji, trazimo je globalno, trazimo i promenljivu globalno
+				obj = Tab.find(objName);
+				
+			} else { //ako metoda postoji. promenljiva je lokalna u njoj, nadalje pretraga za lokalnu promenljivu
+				
+				obj = findInTheWidestScope(objName); //pretrazivanje u sirem opsegu, moze otici iznad opsega programa, npr za eol
+				
+				if (obj == Tab.noObj) { //ako object nije pronadjen na najsirem scope, onda cemo ga traziti na nivou lokalnih promenljivih u metodi
+					for (Obj o : CodeGenerator.methodObj.getLocalSymbols()) { // pretraga simbola unutar scopa metode
+						if (o.getName().equals(objName)) {
+							obj = o;
+						}
+					}
+				}
+			}
+			
+		}
+		return obj;
+	}
+	
+	//pomocna metoda za pretragu iznad scope od programa, za eol npr
+	private static Obj findInTheWidestScope(String objName) {
+		Scope widestScope = SemanticAnalyzer.programScope; 				//najsiri scope
+		
+		Scope currentScope = Tab.currentScope;							//pamtimo trenutni da bi posle vratili na staro
+		Tab.currentScope = widestScope;									//uzimamo u trenutni scope onaj najsiri
+		
+		Obj symbol = Tab.find(objName);									//pretraga na tom nivou i iznad, ali iznad ne postoji
+		
+		Tab.currentScope = currentScope;								//vracanje scope na staru vrednost
+		return symbol;													//pronadjeni se vraca
+	}
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+	public static void addInstructionsForPrintingString(String toPrint, int size) { //deo koda za ispisivanje true i false slovo po slovo
+		for (int i = 0; i<toPrint.length(); i++) {
+			Code.loadConst(toPrint.codePointAt(i));
+			Code.loadConst(size);
+			Code.put(Code.bprint);
+		}
+	}
+}
+
+/**
+ * for(int i = 0; i < brVrste; i++){
+			for(int j = 0; i < brKolone; j++){
+				print(mat[i][j]); 
+				print(' ');
+			}
+			print(eol);
+		}
+		
+uputstvo: resim semantiku(ili preko if, ili zakomentarisem)
+			obezbedim da mi designator u prvoj opciji vrati adresu matrice, da bih ja koriscenjem arrayLength dohvatio obe dimenzije
+			uvedem jos jednu promenljivu ili vise
+			
+			
+*/

@@ -1,0 +1,267 @@
+package rs.ac.bg.etf.pp1;
+
+import rs.ac.bg.etf.pp1.ast.*;
+import rs.etf.pp1.mj.runtime.Code;
+import rs.etf.pp1.symboltable.*;							
+import rs.etf.pp1.symboltable.concepts.*;
+
+public class ExprVisitor extends MyVisitor {
+
+	public Obj namespaceObj;
+	public Obj designatorObj;
+	public boolean isBoolFactor; //bool na unosu
+	public boolean boolFactorValue; //pamtimo konkretnu vrednost bool promenljive ako se pojavi
+	public boolean isCharFactor; //char na unosu
+	public boolean minusExists;
+	public int level;
+	
+	public boolean isBooleanType; //fleg koji oznacava tip designatora
+	public boolean isCharType;
+	
+	public void visit(BeforeArrayElementExpr e) { //za ugnjezdavanje kod designator arraya podizemo level
+		level++;
+	}
+	
+	public void visit(DesignatorArrayAfter e) { //kada zavrsimo sa njim smanjujemo level
+		level--;
+	}
+	
+	public void visit(Designator designator) {
+		if (level > 0) { //univerzalna provera za level, da bi preskakalo
+			return;
+		}
+		
+		if(designator.getDesignatorWithScope() instanceof NoDesignatorWithScopeBefore) { //nema scope
+			if(designator.getDesignatorArray() instanceof NoDesignatorArray) { //nema niz
+				String designatorName = designator.getName();
+				Obj symbol = Helper.getObj(designatorName);
+				this.designatorObj = symbol; //dodato u polje
+				
+				if (symbol.getName().equals("eol")) { //ako se eol pojavio, upadace u ovu opciju
+					isCharFactor = true;
+					Code.loadConst(String.valueOf("\n").codePointAt(0));
+				} else {
+					Code.load(symbol);
+				}
+				
+				if (symbol.getType().getKind() == Struct.Bool) {
+					isBooleanType = true;
+				} else if (symbol.getType().getKind() == Struct.Char) {
+					isCharType = true;
+				} 
+				
+			} else { //ima niz
+				String designatorName = designator.getName();
+				Obj symbol = Helper.getObj(designatorName);
+				this.designatorObj = symbol;
+				
+				// load adrese
+				Code.load(symbol);
+				
+				//load indexa
+				ExprVisitor visitor = new ExprVisitor();
+				visitor.setErrorOccurredObject(error);
+				((DesignatorArrayAfter)designator.getDesignatorArray()).getExpr().traverseBottomUp(visitor);
+
+				// instrukcija za load niz[index]
+				Code.put(Code.aload);
+				
+				if (symbol.getType().getElemType().getKind() == Struct.Bool) {
+					isBooleanType = true;
+				} else if (symbol.getType().getElemType().getKind() == Struct.Char) {
+					isCharType = true;
+				} 
+			}
+			
+		} else { //ima scope
+			if(designator.getDesignatorArray() instanceof NoDesignatorArray) { //nema niz
+				String namespaceName = designator.getName();
+				String designatorName = ((DesignatorWithScopeBefore)designator.getDesignatorWithScope()).getName();
+
+				Obj namespaceObj = Tab.find(namespaceName);
+				this.namespaceObj = namespaceObj;
+				/*//zelimo da trazimo promenljivu u nekom drugom namespace, umesto da se uzme podrazumevano onaj u kom smo
+				 * namespace Konstante {
+				 * 	{
+				 * 		void x() { print(Nizovi::x); }
+				 * 	}
+				 * }
+				 */
+				Obj symbol = Helper.getObjByNamespace(designatorName, namespaceObj);
+				this.designatorObj = symbol;
+				
+				if (symbol.getKind() == Obj.Con) {
+					Code.load(symbol);
+				} else {
+					Code.put(Code.getstatic);
+					Code.put2(symbol.getAdr() + namespaceObj.getLevel());
+				}
+				
+				if (symbol.getType().getKind() == Struct.Bool) {
+					isBooleanType = true;
+				} else if (symbol.getType().getKind() == Struct.Char) {
+					isCharType = true;
+				} 
+				
+			} else { //ima niz
+				String namespaceName = designator.getName();
+				String designatorName = ((DesignatorWithScopeBefore)designator.getDesignatorWithScope()).getName();
+
+				Obj namespaceObj = Tab.find(namespaceName);
+				this.namespaceObj = namespaceObj;
+				Obj symbol = Helper.getObjByNamespace(designatorName, namespaceObj);
+				this.designatorObj = symbol;
+				
+				// load adrese				
+				Code.put(Code.getstatic);
+				Code.put2(namespaceObj.getLevel() + symbol.getAdr());
+				
+				//load indexa
+				ExprVisitor visitor = new ExprVisitor();
+				visitor.setErrorOccurredObject(error);
+				((DesignatorArrayAfter)designator.getDesignatorArray()).getExpr().traverseBottomUp(visitor);
+
+				// instrukcija za load niz[index]
+				Code.put(Code.aload);
+				
+				if (symbol.getType().getElemType().getKind() == Struct.Bool) {
+					isBooleanType = true;
+				} else if (symbol.getType().getElemType().getKind() == Struct.Char) {
+					isCharType = true;
+				} 
+			}
+			
+			
+		}
+		if (minusExists) { //deo koda koji se tice minusa, pri prvom prolazu, uradimo negaciju ako ima potrebe i fleg se gasi za ostale designatore
+			Code.put(Code.neg);
+			minusExists = false;
+		}
+	}
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/	
+	public void visit(NumberConstFactor numberConst) {
+		if (level > 0) {
+			return;
+		}
+		int number = numberConst.getNumConst().getNumber();
+		Code.loadConst(number);
+	}	
+	
+	public void visit(CharacterConstFactor charConst) {
+		if (level > 0) {
+			return;
+		}
+		isCharFactor = true;
+		char[] characters = charConst.getCharConst().getCharValue().toCharArray();
+		char character = characters[1]; //on dovuce 'c', sto je niz od 3 karaktera, gde meni treba srednji
+		int charValue = String.valueOf(character).codePointAt(0);
+		Code.loadConst(charValue);
+	}
+	
+	public void visit(BooleanConstFactor boolConst) {
+		if (level > 0) {
+			return;
+		}
+		isBoolFactor = true;
+		if(boolConst.getBoolConst() instanceof BooleanConstTrue) {
+			boolFactorValue = true;
+			Code.loadConst(1);
+		} else if(boolConst.getBoolConst() instanceof BooleanConstFalse) {
+			boolFactorValue = false;
+			Code.loadConst(0);
+		}
+	}
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+	public void visit(TermMultipleFactors termMultiple) {	
+		if (level > 0) {
+			return;
+		}
+		if(termMultiple.getMulop() instanceof Mulopp) {
+			Code.put(Code.mul);
+		} else if(termMultiple.getMulop() instanceof Divop) {
+			Code.put(Code.div);
+		} else if(termMultiple.getMulop() instanceof Modop) {
+			Code.put(Code.rem);
+		}
+	}
+	
+	public void visit(ExprSummarizeTerms exprSummarize) {
+		if (level > 0) {
+			return;
+		}
+		if(exprSummarize.getAddop() instanceof Addopp) {
+			Code.put(Code.add);
+		} else if(exprSummarize.getAddop() instanceof Subop) {
+			Code.put(Code.sub);
+		}
+	}
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+	public void visit(MinusExists m) {
+		if (level > 0) {
+			return;
+		}
+		minusExists = true;		
+	}
+	
+	public void visit(Expr expr) { //ostavljeno da bi se svakako sacekalo ukoliko treba, da se ne izvrsava
+		if (level > 0) {
+			return;
+		}		
+	}
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+	public void visit(BeforeExpr e) { //ovo dvoje upareno je za (Expr)
+		level++;
+	}
+	
+	public void visit(ExprFactor exprFactor) { //kad izadje dekrementira level, a ako je potrebno pokrene obilazak za najugnjezdeniji
+		level--;
+		if (level > 0) {
+			return;
+		}
+				
+		ExprVisitor visitor = new ExprVisitor();
+		visitor.setErrorOccurredObject(error);
+		exprFactor.getExpr().traverseBottomUp(visitor);	
+		
+	}
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+	public void visit(BeforeNewArrayBracket b) {
+		level++;
+	}
+	
+	public void visit(NewArrayFactor newArray) {
+		level--;
+		if (level > 0) {
+			return;
+		}
+		
+		ExprVisitor visitor1 = new ExprVisitor();
+		visitor1.setErrorOccurredObject(error);
+		newArray.getExpr().traverseBottomUp(visitor1);
+		
+		if (newArray.getTwoDimensionCreate() instanceof WithoutTwoDimensionsCreate) {
+			if(newArray.getGlobalVarType().getGlobalVarTypeChoose() instanceof GlobalVarTypeChooseChar) {
+				Code.put(Code.newarray);
+				Code.loadConst(1);
+			} else {
+				Code.put(Code.newarray);
+				Code.loadConst(0);
+			}
+		} else { // za matricu
+			// new int[3][4]
+			// 3 x 4 - moze i linearizacija matrice - niz od 12 elemenata
+			
+			// 3 4 --> 4 3
+			ExprVisitor visitor2 = new ExprVisitor();
+			visitor2.setErrorOccurredObject(error);
+			((WithTwoDimensionsCreate)newArray.getTwoDimensionCreate()).getExpr().traverseBottomUp(visitor2);
+			
+			Code.put(Code.dup_x1);
+			Code.put(Code.pop);
+		}
+		
+		
+		
+		
+	}
+}

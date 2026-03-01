@@ -1,0 +1,361 @@
+package rs.ac.bg.etf.pp1;
+
+import rs.ac.bg.etf.pp1.ast.*;
+import rs.etf.pp1.mj.runtime.Code;
+import rs.etf.pp1.symboltable.*;							
+import rs.etf.pp1.symboltable.concepts.*;
+
+public class CodeGenerator extends MyVisitor {
+	
+	private int mainPc;
+	public static Obj namespaceObj;
+	public static Obj methodObj;
+	
+	public int getMainPc(){
+		return mainPc;
+	}
+	
+	//generisanje: CodeGenerator, ExprV, StatementReadDesignatorV, Helper
+	
+	//generisanje: Compiler na run, pa build na runObj
+	
+	//strelica pored run gore --> Run Configurations.. --> Java Application --> New Configuration --> pa popunimo sledece stvari:
+	//Disasm:	Name: Disasm, main class: rs.etf.pp1.mj.runtime.disasm, a u tabu Arguments: test/program.obj
+	//RunDebug: Name: Run Debug, main class: rs.etf.pp1.mj.runtime.Run, a u tabu Arguments: test/program.obj -debug
+	//Run:		Name: Run, main class: rs.etf.pp1.mj.runtime.Run, a u tabu Arguments: test/program.obj
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+	public static void generateDefaultMethods() {
+		int startAdrLen = Code.mainPc;
+		methodObj = Helper.getObj("len");
+		methodObj.setAdr(startAdrLen);
+
+		Code.put(Code.enter);
+		Code.put(Code.const_1);
+		Code.put(Code.const_1);
+		
+		Code.put(Code.load);
+		Code.put(Code.const_n);
+		Code.put(Code.const_n);
+		Code.put(Code.aload);
+		
+		methodObj = null;
+		Code.put(Code.exit);
+		Code.put(Code.return_);
+/*---------------------------------------------------------------*/
+		int startAdrOrd = Code.mainPc;
+		methodObj = Helper.getObj("ord");
+		methodObj.setAdr(startAdrOrd);
+		
+		Code.put(Code.enter);
+		Code.put(Code.const_1);
+		Code.put(Code.const_1);
+		
+//		char character = 
+//		int charValue = String.valueOf(character).codePointAt(0);
+		
+		
+		methodObj = null;
+		Code.put(Code.exit);
+		Code.put(Code.return_);
+/*---------------------------------------------------------------*/
+		int startAdrChr = Code.mainPc;
+		methodObj = Helper.getObj("chr");
+		methodObj.setAdr(startAdrChr);
+		
+		Code.put(Code.enter);
+		Code.put(Code.const_1);
+		Code.put(Code.const_1);
+		
+		//...
+		
+		methodObj = null;
+		Code.put(Code.exit);
+		Code.put(Code.return_);
+	}
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+	public void visit(NameOfNamespace non) {
+		namespaceObj = Tab.find(non.getNameOfName());		
+	}
+	
+	public void visit(SingleNamespace sn) {
+		namespaceObj = null;
+	}
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+	public void visit(MethName methName) {
+		methodObj = Helper.getObj(methName.getName());
+		
+		if (methodObj.getName().equals("main") && namespaceObj == null) { //ako je metoda naziva main(), ali nije u nekom namespace, vec globalna
+			mainPc = Code.pc;												//dodela vrednosti mainPc
+		}	
+		methodObj.setAdr(Code.pc); //postavljena adresa za metodu, samo sto nije vidljiva, tj pre se pozove dump od ovog, pa se ne vidi, ali u pozadini radi
+		
+		//instrukcija enter, koja nakon zahteva 2 argumenta, prvi broj formalnih, a drugi formalni + lokalni(koristio sam FpPos polje)
+		Code.put(Code.enter);
+		Code.put(methodObj.getLevel());
+		Code.put(methodObj.getLevel() + methodObj.getFpPos());
+	}	
+	
+	public void visit(MethodDecl methodDecl) {
+		methodObj = null;						//ponistavanje promenljive
+		Code.put(Code.exit);					//dve suprotne operacije od call i enter
+		Code.put(Code.return_);
+	}
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/	
+	public void visit(StatementPrintSimple ps) {
+		ExprVisitor visitor = new ExprVisitor(); //ucitavanje vrednosti
+		visitor.setErrorOccurredObject(error);
+		ps.getExpr().traverseBottomUp(visitor);
+
+		generatePrintInstructions(visitor, 0);		
+	}
+	
+	public void visit(StatementPrintExpanded e) {
+		ExprVisitor visitor = new ExprVisitor();
+		visitor.setErrorOccurredObject(error);
+		e.getExpr().traverseBottomUp(visitor);
+		int number = e.getNumConst().getNumber().intValue(); //sada vec ono sto je uneo korisnik stavljamo na stek
+		
+		generatePrintInstructions(visitor, number);
+		
+	}
+	
+	public void generatePrintInstructions(ExprVisitor visitor, int number) {
+		if (visitor.isBoolFactor) { 					//ispisivanje bool vrednosti, konkretne
+			if (visitor.boolFactorValue) {				//tip designatora je bool
+				Helper.addInstructionsForPrintingString("true", number);
+			} else {
+				Helper.addInstructionsForPrintingString("false", number);
+			}			
+		} else if (visitor.isCharFactor) { //ispisivanje char vrednosti, konkretne
+			
+			Code.loadConst(number); //stavljamo konkretan broj na stek za sirinu
+			Code.put(Code.bprint);
+			
+		} else { //ispisivanje designatora, koji moze biti opet tipa char ili bool ili int
+			if (visitor.isBooleanType) {
+				
+//				load			1
+//				const_0			1 0
+//				jeq falseBlock
+//
+//				trueBlock:
+//					const_ t		t
+//					const_			t 0
+//				bprint			/
+//				jmp nastavak
+//
+//
+//				falseBlock:
+//					const_ t		t
+//					const_			t 0
+//					bprint			/
+//				nastavak:
+				
+				Code.loadConst(0);
+				//jeq falseBlock
+				Code.put(Code.jcc + Code.eq);
+				int patchAddrFalseBlock = Code.pc;
+				Code.put2(0);
+			
+				//ulazi u true opciju i ide na slanje 
+				Helper.addInstructionsForPrintingString("true", number);	
+				//jmp nastavak
+				Code.put(Code.jmp);
+				int patchAdrNastavak = Code.pc;
+				Code.put2(0);
+				
+				//ovde pocinje falseBlock
+				Code.fixup(patchAddrFalseBlock);
+				//ulazi u false opciju i ide na slanje
+				Helper.addInstructionsForPrintingString("false", number);	
+				//ovde pocinje Nastavak
+				Code.fixup(patchAdrNastavak);		
+				
+			} else if (visitor.isCharType) {
+				Code.loadConst(number); //stavljamo konkretan broj na stek za sirinu
+				Code.put(Code.bprint);
+			} else {
+				Code.loadConst(number); //stavljamo konkretan broj na stek za sirinu
+				Code.put(Code.print);				
+			}
+			
+		}		
+	}
+
+	public void visit(StatementRead stmtRead) { //sadrzaj je:(adr, index(samo za niz)), pa vrednost, treba read pre svega da se uradi
+		StatementReadDesignatorVisitor visitor = new StatementReadDesignatorVisitor(); //obidjemo designator, stavljamo sta treba da bude na steku pre vrednosti
+		visitor.setErrorOccurredObject(error);
+		stmtRead.getDesignator().traverseBottomUp(visitor);
+		
+		Obj exprObj = visitor.symbol;
+		if (exprObj != null) { //da se zastitimo od one null reference
+			Struct type = exprObj.getType();
+			
+			if (type.getKind() == Struct.Char || type.getKind() == Struct.Bool) { //ako je tip char ili bool, onda pozivamo bread, ovde ucitamo val na stek
+				Code.put(Code.bread);
+			} else {
+				Code.put(Code.read);
+			}
+			
+			if(exprObj.getType().getKind() == Struct.Array) { //ako je niz imamo adr, index, value
+				Code.put(Code.dup_x2);
+				Code.put(Code.pop);
+			}
+			
+//			temp = read (t|f)
+//					if (temp == 't' || temp == 'T') {
+//						bt = 1;
+//					} else {
+//						bt = 0;
+//					}
+//-------------------------------------------------------
+//					read			temp
+//					dup			temp temp
+//
+//					const_ 116(t)		temp temp 116
+//					jne drugiDeoIfa		temp
+//					pop			/
+//					jmp trueDeo
+//
+//					drugiDeoIfa:
+//					const_ 84(T)		temp 84
+//					jne else		/
+//
+//					trueDeo:
+//					const_1			1
+//					jmp nastavak
+//
+//					else: const_0		0
+//
+//					nastavak: store 1	/
+			
+			if (exprObj.getType().getKind() == Struct.Bool) {
+				//dupliranje zbog poredjenja
+				Code.put(Code.dup);
+				Code.loadConst(116);
+				//moguci skok na DrugiDeoIfa
+				Code.put(Code.jcc + Code.ne);
+				int patchAdrDrugiDeoIfa = Code.pc;
+				Code.put2(0);
+				//nakon prolaza prvog uslova, ispada jedan viska, koji je trebao za eventualno novo poredjenje
+				Code.put(Code.pop);	
+				//skok na trueDeo
+				Code.put(Code.jmp);
+				int patchJumpTrueDeo = Code.pc;
+				Code.put2(0);
+				
+				//ovde pocinje DrugiDeoIfa
+				Code.fixup(patchAdrDrugiDeoIfa);
+				Code.loadConst(84);			
+				//moguci skok na else
+				Code.put(Code.jcc + Code.ne);
+				int patchAdrElse = Code.pc;
+				Code.put2(0);
+				
+				//ovde pocinje TrueDeo
+				Code.fixup(patchJumpTrueDeo);
+				Code.loadConst(1);
+				//skok na nastavak
+				Code.put(Code.jmp);
+				int patchAdrNastavak = Code.pc;
+				Code.put2(0);
+				
+				//ovde pocinje Else
+				Code.fixup(patchAdrElse);
+				Code.loadConst(0);
+				
+				//ovde pocinje Nastavak
+				Code.fixup(patchAdrNastavak);	
+			}
+			
+			visitor.readStore(exprObj); //ovde pozivamo krajnje instrukcije, za sve ono sto je do tada na steku
+		}
+	}
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+public void visit(StatementReturnExpr returnExpr) {
+	ExprVisitor visitor = new ExprVisitor();
+	visitor.setErrorOccurredObject(error);
+	returnExpr.getExpr().traverseBottomUp(visitor);
+	
+	Code.put(Code.exit);
+	Code.put(Code.return_);
+}
+
+public void visit(StatementReturnEmpty returnEmpty) {
+	Code.put(Code.exit);
+	Code.put(Code.return_);
+}
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+	public void visit(DesignatorEqual destEqual) {
+		ExprVisitor visitor1 = new ExprVisitor();
+		visitor1.setErrorOccurredObject(error);
+		destEqual.getExpr().traverseBottomUp(visitor1);
+		
+		StatementReadDesignatorVisitor visitor2 = new StatementReadDesignatorVisitor();
+		visitor2.setErrorOccurredObject(error);
+		destEqual.getDesignator().traverseBottomUp(visitor2);
+		
+		visitor2.readStore(visitor2.symbol);
+	}
+	
+	public void visit(DesignatorIncrement destInc) {
+		ExprVisitor visitor = new ExprVisitor();
+		visitor.setErrorOccurredObject(error);
+		destInc.getDesignator().traverseBottomUp(visitor);
+		
+		Code.put(Code.const_1);
+		Code.put(Code.add);
+
+		StatementReadDesignatorVisitor visitor2 = new StatementReadDesignatorVisitor();
+		visitor2.setErrorOccurredObject(error);
+		destInc.getDesignator().traverseBottomUp(visitor2);
+		
+		visitor2.readStore(visitor2.symbol);
+	}
+	
+	public void visit(DesignatorDecrement destDec) {
+		ExprVisitor visitor = new ExprVisitor();
+		visitor.setErrorOccurredObject(error);
+		destDec.getDesignator().traverseBottomUp(visitor);
+		
+		Code.put(Code.const_1);
+		Code.put(Code.sub);
+
+		StatementReadDesignatorVisitor visitor2 = new StatementReadDesignatorVisitor();
+		visitor2.setErrorOccurredObject(error);
+		destDec.getDesignator().traverseBottomUp(visitor2);
+		
+		visitor2.readStore(visitor2.symbol);
+	}
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+	 //takodje return; kod void, kao i 
+//	public void visit(StatementFuncCall funcCall) {
+//		// prvo proci kroz visitor ExprVisitor da bi se generisali actual params
+//		ExprVisitor visitor1 = new ExprVisitor();
+//		visitor1.setErrorOccurredObject(error);
+//		funcCall.getActualPars().traverseBottomUp(visitor1);
+//	
+//		// proci kroz designator visitor i dohvatiti methObj
+//
+//		
+//		//int offset = visitor2. .designatorObj.getAdr() - Code.pc;
+//		
+//		int offset = CodeGenerator.methodObj.getAdr() - Code.pc;
+//		
+//		Code.put(Code.call);
+//		Code.put2(offset);
+//		
+//		StatementReadDesignatorVisitor visitor2 = new StatementReadDesignatorVisitor();
+//		visitor2.setErrorOccurredObject(error);
+//		funcCall.getFuncCallDesignator().traverseBottomUp(visitor2);
+//		
+//		//Obj designatorFunc = Helper.getObj(funcCall.getFuncCallDesignator().getDesignator().getName());
+////		MethodVisitor visitor3 = new MethodVisitor();
+////		visitor3.setErrorOccurredObject(error);
+////		funcCall.traverseBottomUp(visitor3);
+////		
+////		if(visitor3.retType == Tab.find("void") && !visitor3.returnFound) {
+////			Code.put(Code.pop);
+////		}
+//	}
+}

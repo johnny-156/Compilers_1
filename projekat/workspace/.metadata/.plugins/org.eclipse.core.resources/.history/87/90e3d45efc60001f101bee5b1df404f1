@@ -1,0 +1,254 @@
+package rs.ac.bg.etf.pp1;
+
+import rs.ac.bg.etf.pp1.ast.*;
+import rs.etf.pp1.symboltable.*;
+import rs.etf.pp1.symboltable.concepts.*;
+
+public class StatementVisitor extends MyVisitor {
+	
+	public boolean returnFound;
+	public Obj returnType;
+	
+	public String MethName;
+	
+	public void visit(DesignatorEqual destEqual) {
+		ValidExprVisitor visitor1 = new ValidExprVisitor();
+    	visitor1.setErrorOccurredObject(error);
+    	destEqual.getDesignator().traverseBottomUp(visitor1);
+    	
+		if (!visitor1.validity) {
+			return;
+		}
+    	
+		ValidExprVisitor visitor2 = new ValidExprVisitor();
+    	visitor2.setErrorOccurredObject(error);
+    	destEqual.getExpr().traverseBottomUp(visitor2);
+		
+		if (!visitor2.validity) {
+    		return;
+    	}
+    	
+		if(visitor2.exprType != Tab.nullType) { //mora se dodeljivati nesto sto je nenulto, u suprotnom nema smisla
+			if(visitor1.exprType.getKind() != visitor2.exprType.getKind()) {
+				report_error("U izrazu dodele vrednosti nemamo kompatibilne tipove po dodeli!", destEqual);
+			} else { //ovde su sigurno jednaki
+				if(visitor1.exprType.getKind() == Struct.Array || visitor1.exprType.getKind() == Struct.Enum) {
+					if(visitor1.exprType.getElemType().getKind() != visitor2.exprType.getElemType().getKind()) {
+						report_error("U izrazu dodele vrednosti nemamo kompatibilne tipove po dodeli!", destEqual);
+					}
+				}
+			}
+		}
+	}
+	
+	public void visit(DesignatorIncrement destInc) {
+		ValidExprVisitor visitor = new ValidExprVisitor();
+    	visitor.setErrorOccurredObject(error);
+    	destInc.getDesignator().traverseBottomUp(visitor);
+    	
+    	if (!visitor.validity) {
+    		return;
+    	}
+    	
+    	boolean foundWrong = false;
+    	if (visitor.exprType.getKind() == Struct.Array || visitor.exprType.getKind() == Struct.Enum) {
+    		if(visitor.exprType.getElemType().getKind() != Struct.Int) {
+    			foundWrong = true;
+			}
+		} else {
+			if(visitor.exprType.getKind() != Struct.Int) {
+    			foundWrong = true;
+			}
+		}
+    	
+    	if(visitor.exprObj.getKind() == Obj.Con) foundWrong = true;
+    	
+    	Designator d = destInc.getDesignator();
+    	DesignatorArray da = d.getDesignatorArray();  
+    	if(visitor.exprType.getKind() == Struct.Array && da instanceof NoDesignatorArray) foundWrong = true;
+    	if(visitor.exprType.getKind() == Struct.Enum && da instanceof NoDesignatorArray) foundWrong = true;
+    	
+    	if(foundWrong) {
+    		report_error("Izraz koji zelimo da inkrementiramo nije int tip ili je referenca ili je konstanta!", destInc);
+    	}
+	}
+	
+	public void visit(DesignatorDecrement destDec) {
+		ValidExprVisitor visitor = new ValidExprVisitor();
+    	visitor.setErrorOccurredObject(error);
+    	destDec.getDesignator().traverseBottomUp(visitor);
+		
+		if (!visitor.validity) {
+    		return;
+    	}
+    	
+    	boolean foundWrong = false;
+    	if (visitor.exprType.getKind() == Struct.Array || visitor.exprType.getKind() == Struct.Enum) {
+    		if(visitor.exprType.getElemType().getKind() != Struct.Int) {
+    			foundWrong = true;
+			}
+		} else {
+			if(visitor.exprType.getKind() != Struct.Int) {
+    			foundWrong = true;
+			}
+		}
+    	
+    	if(visitor.exprObj.getKind() == Obj.Con) foundWrong = true;
+    	
+    	Designator d = destDec.getDesignator();
+    	DesignatorArray da = d.getDesignatorArray();  
+    	if(visitor.exprType.getKind() == Struct.Array && da instanceof NoDesignatorArray) foundWrong = true;
+    	if(visitor.exprType.getKind() == Struct.Enum && da instanceof NoDesignatorArray) foundWrong = true;
+    	
+    	if(foundWrong) {
+    		report_error("Izraz koji zelimo da dekrementiramo nije int tip ili je referenca ili je konstanta!", destDec);
+    	}
+	}
+	
+	public void visit(StatementFuncCall destFuncCall) {
+		StatementFuncCallVisitor visitor = new StatementFuncCallVisitor();
+		visitor.setErrorOccurredObject(error);
+		destFuncCall.traverseBottomUp(visitor);
+	}
+	
+	public void visit(StatementRead stmtRead) {
+		ValidExprVisitor visitor = new ValidExprVisitor();
+		visitor.setErrorOccurredObject(error);
+		stmtRead.getDesignator().traverseBottomUp(visitor);
+		
+    	if (!visitor.validity) {
+    		return;
+		}
+    	
+    	boolean foundWrong = false;
+    	
+    	if (visitor.exprType.getKind() == Struct.Array || visitor.exprType.getKind() == Struct.Enum) { //ako je kolekcija
+    		if(visitor.exprType.getElemType() != Tab.intType && visitor.exprType.getElemType() != Tab.charType && visitor.exprType.getElemType().getKind() != Struct.Bool) { //neodgovarajuci tip
+    			foundWrong = true;
+    		} else { //ako je normalnog tipa unutar kolekcije, pa proverimo na referencu
+    			
+    			Designator d = stmtRead.getDesignator();
+    	    	DesignatorArray da = d.getDesignatorArray();  
+    	    	if(visitor.exprType.getKind() == Struct.Array && da instanceof NoDesignatorArray) foundWrong = true;
+    	    	if(visitor.exprType.getKind() == Struct.Enum && da instanceof NoDesignatorArray) foundWrong = true;
+    			
+    		}
+		} else { //kada nije kolekcija
+			if(visitor.exprType != Tab.intType && visitor.exprType != Tab.charType && visitor.exprType.getKind() != Struct.Bool) { //neodgovarajuci tip
+    			foundWrong = true;
+			}
+		}
+	    	
+    	if(visitor.exprObj.getKind() == Obj.Con) foundWrong = true; //konstanta ne moze biti u read()
+    	
+    	if(foundWrong) {
+    		report_error("Izraz koji zelimo da ucitamo je neodgovarajuceg tipa ili je referenca ili je konstanta!", stmtRead);
+    	}
+	}
+	
+	public void visit(StatementPrintSimple printSimple) {
+		ValidExprVisitor visitor = new ValidExprVisitor();
+    	visitor.setErrorOccurredObject(error);
+    	printSimple.getExpr().traverseBottomUp(visitor);
+    	
+    	if (!visitor.validity) {
+    		return;
+    	}
+    	
+    	boolean foundWrong = false;
+    	
+    	if (visitor.exprType.getKind() == Struct.Array || visitor.exprType.getKind() == Struct.Enum) { //ako je kolekcija
+    		if(visitor.exprType.getElemType() != Tab.intType && visitor.exprType.getElemType() != Tab.charType && visitor.exprType.getElemType().getKind() != Struct.Bool) { //neodgovarajuci tip
+    			foundWrong = true;
+    		} else { //ako je normalnog tipa unutar kolekcije, pa proverimo na referencu
+    			
+    	    	Expr e = printSimple.getExpr();
+    	    	Term t;
+    	    	if(e.getExprWhole() instanceof ExprSingleTerm) {
+    	    		t = ((ExprSingleTerm)e.getExprWhole()).getTerm();
+    	    		Factor f;
+    	        	if(t instanceof TermSingleFactor) {
+    	        		f = ((TermSingleFactor)t).getFactor();
+    	            	if(f instanceof DesignatorFactor) {
+    	            		
+    	            		Designator d = ((DesignatorFactor)f).getDesignator();
+    	                	DesignatorArray da = d.getDesignatorArray(); 
+    	            		
+    	            		if(visitor.exprType.getKind() == Struct.Array && da instanceof NoDesignatorArray) foundWrong = true;
+    	                	if(visitor.exprType.getKind() == Struct.Enum && da instanceof NoDesignatorArray) foundWrong = true;
+    	            	}
+    	            	else if(f instanceof NewArrayFactor) {
+    	            		foundWrong = true;
+    	            	}
+    	        	}
+    	    	}    			
+    		}
+		} else { //kada nije kolekcija
+			if(visitor.exprType != Tab.intType && visitor.exprType != Tab.charType && visitor.exprType.getKind() != Struct.Bool) { //neodgovarajuci tip
+    			foundWrong = true;
+			}
+		}
+    	
+    	ExprWhole ps = ((Expr)printSimple.getExpr()).getExprWhole();
+    	if(foundWrong) {
+    		report_error("Izraz koji zelimo da ispisemo je neodgovarajuceg tipa ili je referenca ili je alokacija kolekcije!", ps);
+    	}
+	}
+	
+	public void visit(StatementPrintExpanded printExpanded) {
+		ValidExprVisitor visitor = new ValidExprVisitor();
+    	visitor.setErrorOccurredObject(error);
+    	printExpanded.getExpr().traverseBottomUp(visitor);
+    	
+    	if (!visitor.validity) {
+    		return;
+    	}
+    	
+    	int number = printExpanded.getNumConst().getNumber().intValue();
+    	NumConst defaultValue = new NumConst(0);
+    	defaultValue.setParent(printExpanded); //da bi  bili sigurni da smo promenili vrednost roditelja
+    	if(number < 0) {
+    		report_info("Unesena vrednost se ne smatra validnom i u kodu ce se podrazumevati nula umesto nje!", printExpanded.getNumConst());
+    		printExpanded.setNumConst(defaultValue);
+    	}
+    	
+    	boolean foundWrong = false;
+    	
+    	if (visitor.exprType.getKind() == Struct.Array || visitor.exprType.getKind() == Struct.Enum) { //ako je kolekcija
+    		if(visitor.exprType.getElemType() != Tab.intType && visitor.exprType.getElemType() != Tab.charType && visitor.exprType.getElemType().getKind() != Struct.Bool) { //neodgovarajuci tip
+    			foundWrong = true;
+    		} else { //ako je normalnog tipa unutar kolekcije, pa proverimo na referencu
+    			
+    	    	Expr e = printSimple.getExpr();
+    	    	Term t;
+    	    	if(e.getExprWhole() instanceof ExprSingleTerm) {
+    	    		t = ((ExprSingleTerm)e.getExprWhole()).getTerm();
+    	    		Factor f;
+    	        	if(t instanceof TermSingleFactor) {
+    	        		f = ((TermSingleFactor)t).getFactor();
+    	            	if(f instanceof DesignatorFactor) {
+    	            		
+    	            		Designator d = ((DesignatorFactor)f).getDesignator();
+    	                	DesignatorArray da = d.getDesignatorArray(); 
+    	            		
+    	            		if(visitor.exprType.getKind() == Struct.Array && da instanceof NoDesignatorArray) foundWrong = true;
+    	                	if(visitor.exprType.getKind() == Struct.Enum && da instanceof NoDesignatorArray) foundWrong = true;
+    	            	}
+    	            	else if(f instanceof NewArrayFactor) {
+    	            		foundWrong = true;
+    	            	}
+    	        	}
+    	    	}    			
+    		}
+		} else { //kada nije kolekcija
+			if(visitor.exprType != Tab.intType && visitor.exprType != Tab.charType && visitor.exprType.getKind() != Struct.Bool) { //neodgovarajuci tip
+    			foundWrong = true;
+			}
+		}
+    	
+    	ExprWhole ps = ((Expr)printSimple.getExpr()).getExprWhole();
+    	if(foundWrong) {
+    		report_error("Izraz koji zelimo da ispisemo je neodgovarajuceg tipa ili je referenca ili je alokacija kolekcije!", ps);
+    	}
+	}
+}

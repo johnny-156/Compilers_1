@@ -1,0 +1,165 @@
+package rs.ac.bg.etf.pp1;
+
+import rs.ac.bg.etf.pp1.ast.*;
+import rs.etf.pp1.symboltable.*;							
+import rs.etf.pp1.symboltable.concepts.*;					
+import rs.etf.pp1.symboltable.structure.SymbolDataStructure;
+															
+public class DeclarationsVisitor extends MyVisitor {
+						
+	public static final int GLOBAL_DECLARATIONS = 0;
+	public static final int INSIDE_NAMESPACE = 1;
+	
+	public Obj type;										//imamo 4 ulaza: za global(spolja i namespace), varDecl iz metode i formPars
+	public String typeName;
+	public int variables;
+	
+	public int isNamespaceConst;	//0 je prosledjena kada su globalne promenljive u pitanju, a 1 kada su lokalne iz namespace
+	
+	public int numberOfFormParam; //ovde se pobroje formalni parametri za svaku metodu
+	
+	public int firstVarIndex; //promenljiva koja oznacava prvu adresu promenljive u bloku, za slucaj kada imamo namespace pre globalnih promenljivih
+	
+	public DeclarationsVisitor() {
+			
+		}
+	
+	public DeclarationsVisitor(int isNamespaceConst) {
+		this.isNamespaceConst = isNamespaceConst;
+	}
+	
+	public void visit(GlobalVarType globalVarType) {
+    	if (globalVarType.getGlobalVarTypeChoose() instanceof GlobalVarTypeChooseInt) {
+    		typeName = "int";
+    	} else if (globalVarType.getGlobalVarTypeChoose() instanceof GlobalVarTypeChooseChar) {
+    		typeName = "char";
+    	} else if (globalVarType.getGlobalVarTypeChoose() instanceof GlobalVarTypeChooseBool) {
+    		typeName = "bool";
+    	}
+    	Obj typeNode = Tab.find(typeName);			
+    	this.type = typeNode;
+    }
+	
+	public void visit(GlobalVarOption globalVarOption) {
+		String varName = globalVarOption.getVarName();
+		if (Tab.find(varName) == Tab.noObj) {
+			Obj newObj = null;
+			if(globalVarOption.getGlobalVarArray() instanceof GlobalVarArrayPresent) {
+				Struct structure = new Struct(Struct.Array, this.type.getType());
+				newObj = Tab.insert(Obj.Var, varName, structure);
+			} else if(globalVarOption.getGlobalVarArray() instanceof NoGlobalVarArray) {
+				newObj = Tab.insert(Obj.Var, varName, this.type.getType());				
+			} else if(globalVarOption.getGlobalVarArray() instanceof GlobalVarMatrixPresent) { //dodavanje cvora za matricu
+				Struct structure = new Struct(Struct.Enum, this.type.getType()); //konstruktor je predefinisan da ne postavlja elemType nicemu sto nije Struct.Array
+				structure.setElementType(this.type.getType()); //dodatno postavljen ElemType
+				newObj = Tab.insert(Obj.Var, varName, structure);				
+			}
+			
+			if ( isNamespaceConst == GLOBAL_DECLARATIONS ) { //brojanje odakle pocinje prva globalna promenljiva, a makon namespace svih
+				newObj.setAdr(firstVarIndex++);
+			}
+			variables++;
+		}else {
+			Obj symbol = Tab.find(varName);
+			if(symbol.getKind() == Obj.Var) {
+				this.report_error("Promenljiva " + varName + " vec postoji!", globalVarOption);
+			} else {
+				this.report_error("Konstanta " + varName + " vec postoji!", globalVarOption);
+			}
+		}
+	}
+	
+	public void visit(ConstDeclOption constDeclOption) {
+		String name = constDeclOption.getConstName();
+		if(Tab.find(name) == Tab.noObj) {
+			if(constDeclOption.getConstValues() instanceof NumberConstValue) {
+				if(this.type.getType().assignableTo(Tab.intType)) {
+					int number = ((NumConst)((NumberConstValue)constDeclOption.getConstValues()).getNumConst()).getNumber();
+					Tab.currentScope().addToLocals(new Obj(Obj.Con, name, type.getType(), number, this.isNamespaceConst));
+				} else {
+					this.report_error("Konstanta " + name + " je tipa " + this.typeName + ", dok je dodeljena vrednost tipa int!", constDeclOption);
+					}
+			}
+			else if(constDeclOption.getConstValues() instanceof CharacterConstValue) {
+				if(this.type.getType().assignableTo(Tab.charType)) {
+					String text = ((CharConst)((CharacterConstValue)constDeclOption.getConstValues()).getCharConst()).getCharValue();
+					char character = text.charAt(1);					
+					Tab.currentScope().addToLocals(new Obj(Obj.Con, name, type.getType(), character, this.isNamespaceConst));
+				} else {
+					this.report_error("Konstanta " + name + " je tipa " + this.typeName + ", dok je dodeljena vrednost tipa char!", constDeclOption);
+				}
+			}
+			else if(constDeclOption.getConstValues() instanceof BooleanConstValue) {
+				if(this.type.getName().equals("bool")) {
+					int boolValue;
+					if(((BooleanConstValue)constDeclOption.getConstValues()).getBoolConst() instanceof BooleanConstTrue) {
+						boolValue = 1;
+					} else {
+						boolValue = 0;
+					}
+					Tab.currentScope().addToLocals(new Obj(Obj.Con, name, type.getType(), boolValue, this.isNamespaceConst));
+				} else {
+					this.report_error("Konstanta " + name + " je tipa " + this.typeName + ", dok je dodeljena vrednost tipa bool!", constDeclOption);
+				}
+			}
+		}else {
+			Obj symbol = Tab.find(name);
+			if (symbol.getKind() == Obj.Var) {
+				this.report_error("Promenljiva " + name + " vec postoji!", constDeclOption);
+			} else {
+				this.report_error("Konstanta " + name + " vec postoji!", constDeclOption);
+			}
+		}
+	}
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+	public void visit(VarDecl varDecl) {
+		String varName = varDecl.getVarDeclName();
+		SymbolDataStructure sds = Tab.currentScope.getLocals();
+		if (sds == null || sds.searchKey(varName) == null) {		
+			if(varDecl.getVarDeclArray() instanceof VarDeclArrayPresent) {
+				Struct structure = new Struct(Struct.Array, this.type.getType());
+				Tab.insert(Obj.Var, varName, structure);
+			} else if(varDecl.getVarDeclArray() instanceof NoVarDeclArray) {
+				Tab.insert(Obj.Var, varName, this.type.getType());
+			} else if(varDecl.getVarDeclArray() instanceof VarDeclMatrixPresent) { //dodavanje cvora za matricu
+				Struct structure = new Struct(Struct.Enum, this.type.getType());
+				structure.setElementType(this.type.getType()); //Struct() ima falinku ako tip nije Struct.Array
+				Tab.insert(Obj.Var, varName, structure);
+			}
+		} else {
+			this.report_error("Promenljiva " + varName + " vec postoji!", varDecl);
+		}
+	}
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+	// levi deo: ako je sds == null to sa sigurnoscu znaci da je lokalna Hash Mapa jednaka null, a to znaci
+	// da nijedna lokalna promenljiva nije dodata, a to znaci da treba sigurno pozvati Tab.insert(...)
+			
+	// desni deo: ako mapa pak postoji, to znaci da su neke lokalne promenljive dodate u listu ali ne znamo
+	// koje tacno pa zbog toga vrsimo proveru pozivom metode searchKey() i ukoliko nam ta metoda vrati null,
+	// to znaci da u listi ne postoji lokalna promenljiva koju mi hocemo da dodamo
+	
+	// Tab.find je zamenjen sa sds.searchKey da se ne trazi kroz sve dosege kao sto radi find(), vec samo tekuci 
+	//(voditi racuna da je povratna vrednost null u slucaju da ne postoji simbol u toj hash mapi, a ne Tab.noObj!!!, kao sto bi bilo kod Tab.find(...))
+	public void visit(SimpleFormParam simpleFormParam) {
+		String formParamName = simpleFormParam.getVarName();
+		SymbolDataStructure sds = Tab.currentScope.getLocals();
+		if (sds == null || sds.searchKey(formParamName) == null) {
+			Tab.insert(Obj.Var, formParamName, this.type.getType());
+			this.numberOfFormParam++;
+		} else {
+			this.report_error("Parametar metode sa imenom " + formParamName + " vec postoji!", simpleFormParam);
+		}
+	}
+	
+	public void visit(ArrayFormParam arrayFormParam) {
+		String arrayFormParamName = arrayFormParam.getVarName();
+		SymbolDataStructure sds = Tab.currentScope.getLocals();
+		if (sds == null || sds.searchKey(arrayFormParamName) == null) {		
+			Struct structure = new Struct(Struct.Array, this.type.getType());
+			Tab.insert(Obj.Var, arrayFormParamName, structure);
+			this.numberOfFormParam++;
+		} else {
+			this.report_error("Parametar metode sa imenom " + arrayFormParamName + " vec postoji!", arrayFormParam);
+		}
+	}
+}

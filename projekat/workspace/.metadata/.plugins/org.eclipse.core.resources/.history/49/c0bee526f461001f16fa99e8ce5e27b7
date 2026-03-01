@@ -1,0 +1,268 @@
+package rs.ac.bg.etf.pp1;
+
+import rs.ac.bg.etf.pp1.ast.*;
+import rs.etf.pp1.mj.runtime.Code;
+import rs.etf.pp1.symboltable.*;
+import rs.etf.pp1.symboltable.concepts.*;
+
+public class StatementReadDesignatorVisitor extends MyVisitor {
+
+	public Obj namespace;
+	public Obj symbol;
+	public int level;
+	
+	public boolean isNamespace;
+	public boolean isArray;
+	public boolean isMatrix;
+	
+	public void visit(MinusWrapper m) {
+		level++;
+	}
+	
+	public void visit(Expr e) {
+		level--;
+	}
+	
+	public void visit(Designator designator) {		
+		if (level > 0) {
+			return;
+		}
+		
+		if(designator.getDesignatorWithScope() instanceof NoDesignatorWithScopeBefore) { //nema scope
+			if(designator.getDesignatorArray() instanceof NoDesignatorArray) { //nema niz
+				String designatorName = designator.getName();
+				symbol = Helper.getObj(designatorName); //dohvatanje
+				
+				//znamo da nije u namespace i da nije niz, bice store b itd., val(lokalna)  ili putstatic s itd., val (globalna), zahtevaju samo vrednost na steku
+				
+				this.isNamespace = false;
+				this.isArray = false;
+				this.isMatrix = symbol.getType().getKind() == Struct.Enum;
+				
+			} else { //ima niz
+				String designatorName = designator.getName();
+				symbol = Helper.getObj(designatorName); //dohvatanje
+				
+				//load adrese
+				Code.load(symbol);
+				
+				//load indexa
+				ExprVisitor visitor = new ExprVisitor();
+				visitor.setErrorOccurredObject(error);
+				((DesignatorArrayAfter)designator.getDesignatorArray()).getExpr().traverseBottomUp(visitor);
+
+				this.isNamespace = false;
+				this.isArray = true;
+				
+				////astore ili baload itd., adr, index, val --- samo videti je li lokalna ili globalna
+			}
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------			
+		} else { //ima scope
+			if(designator.getDesignatorArray() instanceof NoDesignatorArray) { //nema niz
+				String namespaceName = designator.getName();
+				String designatorName = ((DesignatorWithScopeBefore)designator.getDesignatorWithScope()).getName();
+
+				Obj namespaceObj = Tab.find(namespaceName);
+				this.namespace = namespaceObj;
+				symbol = Helper.getObjByNamespace(designatorName, namespaceObj); //dohvatanje
+				
+				//znamo da je u namespace i da nije niza, bice store b itd., val(lokalna)  ili putstatic s itd., val (globalna), zahtevaju samo vrednost na steku
+				
+				this.isNamespace = true;
+				this.isArray = false;
+				
+			} else { //ima niz
+				String namespaceName = designator.getName();
+				String designatorName = ((DesignatorWithScopeBefore)designator.getDesignatorWithScope()).getName();
+
+				Obj namespaceObj = Tab.find(namespaceName);
+				this.namespace = namespaceObj;
+				symbol = Helper.getObjByNamespace(designatorName, namespaceObj); //dohvatanje
+				
+				// load adrese				
+				Code.put(Code.getstatic);
+				Code.put2(namespaceObj.getLevel() + symbol.getAdr());
+				
+				//load indexa
+				ExprVisitor visitor = new ExprVisitor();
+				visitor.setErrorOccurredObject(error);
+				((DesignatorArrayAfter)designator.getDesignatorArray()).getExpr().traverseBottomUp(visitor); //ubacuje index na stek			
+				
+				this.isNamespace = true;
+				this.isArray = true;
+				
+				////astore ili baload itd., adr, index, val --- sigurno je u namespace
+			}
+		}
+	}
+	
+	public void readStore(Obj designator) {
+		boolean isChar = false;
+		if(designator.getType().getKind() == Struct.Char) {
+			isChar = true;
+		}
+		
+//ovaj dup je kopiranje vrsne vrednosti ispod druge vrednosti sa vrha steka
+//		|253 2 5 
+//		|2 5 253
+//
+//		dup_x2	|5 253 2 5
+//		pop		|5 253 2
+//		dup_x2	|2 5 253 2
+//		pop		|2 5 253
+//
+//svaki put kada imamo cuvanje elementa niza negde, poredak na steku mora biti adr, index, val, a bio je val, adr, index
+		
+		if(this.isNamespace) { //u namespace
+			
+			if(!this.isArray) { //nije niz
+				
+				Code.put(Code.putstatic);
+				Code.put2(this.symbol.getAdr() + this.namespace.getLevel());
+				
+			} else { //jeste niz
+				Code.put(Code.dup_x2);
+				Code.put(Code.pop);
+				Code.put(Code.dup_x2);
+				Code.put(Code.pop);
+				if(isChar) {
+					Code.put(Code.bastore);
+				} else {
+					Code.put(Code.astore);
+				}
+			}
+			
+		} else { //van namespace
+			
+			if(CodeGenerator.methodObj == null) { //sigurno globalna, napomenuti Luki da se ovde nikad nikad nije uslo
+				
+				if(!this.isArray) { //nije niz
+					Code.put(Code.putstatic);
+					Code.put2(this.symbol.getAdr());
+					
+				} else { //jeste niz
+					Code.put(Code.dup_x2);
+					Code.put(Code.pop);
+					Code.put(Code.dup_x2);
+					Code.put(Code.pop);
+					if(isChar) {
+						Code.put(Code.bastore);
+					} else {
+						Code.put(Code.astore);
+					}
+				} 
+				
+			} else { //mozda lokalna, prvo nju trazimo, pa globalnu
+				
+				boolean localFound = false;
+				for (Obj o : CodeGenerator.methodObj.getLocalSymbols()) { // pretraga simbola unutar scopa metode
+					if (o.getName().equals(this.symbol.getName())) {
+						localFound = true;
+					}
+				}
+				
+				if(localFound) {
+					if(!this.isArray && !this.isMatrix) { //nije niz i nije matrica
+						Code.put(Code.store);
+						Code.put(this.symbol.getAdr());
+						return;
+						
+					} else if (this.isArray) { //jeste niz
+						Code.put(Code.dup_x2);
+						Code.put(Code.pop);
+						Code.put(Code.dup_x2);
+						Code.put(Code.pop);
+						if(isChar) {
+							Code.put(Code.bastore);
+							return;
+						} else {
+							Code.put(Code.astore);
+							return;
+						}
+					} else if (this.isMatrix) { // jeste lokalna matrica
+						
+					}
+				} else {
+					
+					//globalna
+					if(!this.isArray && !this.isMatrix) { //nije niz i nije matrica
+						Code.put(Code.putstatic);
+						Code.put2(this.symbol.getAdr());
+						
+					} else if (this.isArray) { //jeste niz
+						Code.put(Code.dup_x2);
+						Code.put(Code.pop);
+						Code.put(Code.dup_x2);
+						Code.put(Code.pop);
+						if(isChar) {
+							Code.put(Code.bastore);
+						} else {
+							Code.put(Code.astore);
+						}
+					} else if (this.isMatrix) { //jeste globalna matrica
+						
+						Obj tempI = Tab.find("_");
+						Code.loadConst(0);			// 3 4 0
+						Code.put(Code.putstatic);
+						Code.put2(tempI.getAdr());	// 3 4 => tempI = 0					
+						
+						Code.put(Code.dup_x1); 	// 3 4 --> 4 3 4
+						Code.put(Code.pop);		// 4 3 4 --> 4 3
+						Code.put(Code.dup);		// 4 3 3
+						
+						Code.put(Code.newarray);
+						Code.loadConst(1);		// 4 3 adr(od niza vrsti)											
+						
+						Code.put(Code.putstatic);
+						Code.put2(symbol.getAdr()); // 4 3 => brKolona brVrsti
+						
+						// dupliramo brVrsti da bi na steku uvek ostalo: brKolona brVrsti
+						Code.put(Code.dup);			// 4 3 3 => brKolona brVrsti brVrsti
+						
+						// oduzimamo 1 od broja vrsti da bi mogli da poredimo sa indeksom i
+						Code.loadConst(1);			// 4 3 3 1
+						Code.put(Code.sub);			// 4 3 2
+						
+						
+						Code.put(Code.getstatic);		
+						Code.put2(tempI.getAdr());		// 4 3 2 tempI						
+						Code.put(Code.jcc + Code.ne);	// 4 3
+						int fixupKraj = Code.pc;
+						Code.put2(0);
+						
+						Code.put(Code.newarray);
+						if (symbol.getType().getElemType().getKind() == Struct.Int) {
+							Code.loadConst(1);
+						} else {
+							Code.loadConst(0);
+						}								// 4 3 adr(od niza kolona)
+						// adr, index, value
+						// adr(od niza vrsti) i adr(od niza kolona)
+						
+						Code.put(Code.getstatic);
+						Code.put2(symbol.getAdr());		// 4 3 adr(od niza kolona) adr(od niza vrsti)
+						Code.put(Code.dup_x1);			// 4 3 adr(od niza vrsti) adr(od niza kolona) adr(od niza vrsti)
+						Code.put(Code.pop);				// 4 3 adr(od niza vrsti) adr(od niza kolona)
+						
+						Code.put(Code.getstatic);
+						Code.put2(tempI.getAdr()); 		// 4 3 adr(od niza vrsti) adr(od niza kolona) tempI
+						Code.put(Code.dup_x1);			// 4 3 adr(od niza vrsti) tempI adr(od niza kolona) tempI
+						Code.put(Code.pop);				// 4 3 adr(od niza vrsti) tempI adr(od niza kolona)
+						
+						Code.put(Code.astore);			// 4 3
+						
+						//inkrementiranje brojaca i
+						Code.put(Code.getstatic);		
+						Code.put2(tempI.getAdr());		// 4 3 tempI
+						Code.loadConst(1);				// 4 3 tempI 1
+						Code.put(Code.add);				// 4 3 tempI+1
+						Code.put(Code.putstatic);
+						Code.put2(tempI.getAdr());		// 4 3 
+						
+						Code.put(Code.jmp);
+					}
+				}
+			}
+		}
+	}
+}

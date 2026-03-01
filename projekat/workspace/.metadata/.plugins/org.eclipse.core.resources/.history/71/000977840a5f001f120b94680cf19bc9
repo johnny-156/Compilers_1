@@ -1,0 +1,78 @@
+package rs.ac.bg.etf.pp1;
+
+import rs.ac.bg.etf.pp1.ast.*;
+import rs.etf.pp1.symboltable.*;
+import rs.etf.pp1.symboltable.concepts.*;
+
+public class NamespaceVisitor extends MyVisitor {
+	
+	public static Obj previousNamespace;
+	public static int variables = 0;
+	
+	public String namespaceName;
+	public Obj namespaceObj;
+	public static Scope namespaceScope;	//napravljeno da bude dostupan scope za pristup
+	
+	// kada tokom jednog obilaska nekog visitora se dogodi da se JEDNA metoda visit poziva VISE puta, a na RAZLICITIM MESTIMA logicki u smenama 
+	// (primer MethodDeclListWrapper u namespace-u i MethodDeclListWrapper u globalnim funkcijama), tada je potrebno uvesti nekakav fleg
+	// koji ce nam reci gde se nalazimo - da li u namespace-u ili u globalnom delu
+	// Takodje, posto se te metode pozivaju VISE puta iz JEDNOG prolaska, onda je neophodno da se naprave vestacke smene (NameofNamespace)
+	// kako bi prehutrili i kako bi se pripremili za taj poziv koji se desava vise puta
+	// NAMESPACE DEO
+	// 1. nameofnamespace
+	// 2. methoddecllistwrapper
+	// 3. singlenamespace
+	// ...
+	// GLOBALNI DEO
+	// 1. methoddecllistwrapper
+	// (nema nameofnamespace i nema singlenamespace)
+	boolean isInsideNamespace = true; //da se naznaci da obradjujemo nesto sto deo namespace 
+	boolean namespaceExists;	//namespace vec postoji
+
+	public void visit(NameOfNamespace nameOfNamespace) {
+		this.namespaceExists = false;
+		this.namespaceName = nameOfNamespace.getNameOfName();
+		if(Tab.find(this.namespaceName) == Tab.noObj) {
+			this.namespaceObj = Tab.insert(Obj.Fld, this.namespaceName, Tab.noType);
+		} else {
+			this.report_error("Namespace imenovan kao " + this.namespaceName + " vec postoji!", nameOfNamespace);
+			this.namespaceExists = true;
+			return;		//ako namespace postoji, onda necemo da otvaramo scope bez potrebe
+		}
+		
+		if (previousNamespace != null) {
+			this.namespaceObj.setLevel(previousNamespace.getLevel() + variables); //i ovde smo dodavali kao u SemanticAnalyzer
+			variables = 0;
+		}
+		
+		Tab.openScope();
+		namespaceScope = Tab.currentScope;
+	}
+	
+	public void visit(SingleNamespace singleNamespace) {
+		if(!this.namespaceExists) {	//ako metoda postoji, nismo otvarali scope, samim tim ne treba ni da ga zatvaramo
+			previousNamespace = this.namespaceObj;	//postavljali novu vrednost prethodnog		
+			Tab.chainLocalSymbols(this.namespaceObj);
+			Tab.closeScope();
+		}
+	}	
+	
+    public void visit(MethodDeclListWrapper methodDeclList) {
+    	if (this.namespaceExists) {
+    		return;
+    	}
+    	MethodVisitor visitor = new MethodVisitor(this.isInsideNamespace);
+		visitor.setErrorOccurredObject(error);
+		methodDeclList.traverseBottomUp(visitor);
+    }
+    
+    public void visit(CompleteNamespaceDeclarationsList globalDecls) {
+    	if (this.namespaceExists) {
+    		return;
+    	}
+    	DeclarationsVisitor visitor = new DeclarationsVisitor(1);
+		visitor.setErrorOccurredObject(error);
+		globalDecls.traverseBottomUp(visitor);
+		variables = visitor.variables; //prosledjivanje
+    }   
+}

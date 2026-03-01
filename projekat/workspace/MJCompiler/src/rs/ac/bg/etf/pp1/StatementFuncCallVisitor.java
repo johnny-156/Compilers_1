@@ -1,0 +1,114 @@
+package rs.ac.bg.etf.pp1;
+
+import rs.ac.bg.etf.pp1.ast.*;
+import rs.etf.pp1.symboltable.*;
+import rs.etf.pp1.symboltable.concepts.*;
+
+public class StatementFuncCallVisitor extends MyVisitor {
+	
+	private boolean validity;
+	private int paramCounter;
+	private Obj method;
+	private Obj[] methodFormParams;
+	
+	public StatementFuncCallVisitor() {
+		validity = true;
+	}
+	
+	public void visit(StatementFuncCall sfc) {
+		if (!validity) {
+			return;
+		}
+		// ovde proveravamo broj prosledjenih parametara i formalnih parametara
+		if (paramCounter != method.getLevel()) {
+			report_error("Broj formalnih argumenata (" + method.getLevel() + ") nije isti kao i broj prosledjenih argumenata (" + paramCounter + ")!", sfc);			
+		}
+	}
+
+	public void visit(FuncCallDesignator funcCallDest) {
+		ValidExprVisitor visitor = new ValidExprVisitor();
+    	visitor.setErrorOccurredObject(error);
+    	funcCallDest.getDesignator().traverseBottomUp(visitor);
+    	
+    	if (!visitor.validity) {
+    		validity = false;
+    		return;
+    	}
+    	
+    	method = visitor.exprObj;
+    	if(method.getKind() != Obj.Meth) { //ako metoda nije tipa Meth, kako bi trebalo
+    		report_error("Navedeni designator <" + visitor.exprDesignatorName + "> nije funkcija!", funcCallDest);
+    		validity = false;
+    	}
+    	if (method.getLevel() > 0) { //ako metoda ima ikakav parametar ili vise njih, dohvatamo ih u internu listu u ovoj klasi
+    		methodFormParams = new Obj[method.getLevel()];
+    		int i = 0;
+    		for ( Obj obj : method.getLocalSymbols() ) {
+    			methodFormParams[i++] = obj;
+    		}
+    	}
+	}
+	
+	public void visit(ExprInActParam exprWrapper) { //obilazak svakog act param posebno
+		if (!validity) { //drugi deo uslova je  kada bi ovaj visitor nastavio, a stoji na poslednjem realnom parametru
+			return;
+		}
+		if (paramCounter >= method.getLevel()) {	//kada ima vise actual od formal, da ih ne obradjujemo, a da ih ipak pobrojimo
+			paramCounter++;
+			return;
+		}
+		
+		Expr expr = exprWrapper.getExpr(); //dohvatanje Expr na tom mestu
+		OverrideValidExprVisitor visitor = new OverrideValidExprVisitor();
+		visitor.setErrorOccurredObject(error);
+		
+		// Proveriti da li je trenutni formalni parametar tipa niz, i ako jeste, ne treba raditi proveru reference, izuzetak od pravila
+		Struct formParamStruct = methodFormParams[paramCounter].getType();  //izvukao sam na osnovu brojaca tip datog act parametra
+		paramCounter++;														//povecao sam interni brojac nas za act, da bih znao na kom sam parametru sada
+		if (formParamStruct.getKind() == Struct.Array) {					//ako je dati act parametar niz, preko flega, preskacem proveru tamo u Expr u Valid
+			visitor.shouldCheckForReferenceDetection = false;
+		}		
+		expr.traverseBottomUp(visitor);
+		
+		if (!visitor.validity) { //prosledjena validnost se opet proverava
+			validity = false;	
+			return;
+		}
+		
+		Obj exprObj = visitor.exprObj;	//poenta da ako je null nece imati svoj structr, pa moramo da izvucemo iz exprType
+		Struct actualParamStruct; //izvlacimo act parametar
+		if (exprObj == null) {
+			actualParamStruct = visitor.exprType;
+		} else {
+			actualParamStruct = exprObj.getType();
+		}
+		
+		if(actualParamStruct.getKind() != Tab.nullType.getKind()) { //ne pravim problem ako neko prosledi null u act param
+			
+			if(formParamStruct.getKind() == Struct.Array) { //ako mi je formalni niz po vrsti, tada act mora biti niz, zajedno sa poklapanjem elemType
+				if (method.getName().equals("len")) {
+				
+					if(actualParamStruct.getKind() != Struct.Array) {
+						report_error("U len() metodi mora biti prosledjen tip niz!", exprWrapper.getExpr().getExprWhole());
+						validity = false;
+					}
+					
+				} else {
+					if(actualParamStruct.getKind() != Struct.Array || formParamStruct.getElemType().getKind() != actualParamStruct.getElemType().getKind()) {						
+						validity = false;
+						report_error("U pozivu ne prosledjujemo niz ili on nije ocekivanog tipa!", exprWrapper.getExpr().getExprWhole());						 
+					}
+				}
+				
+			} else { //ako nije niz, tada se mora poklapati po tipu sa act(prostije, act prost tip), poklapati po tipu sa elemType od act(slozenije, act element niza)
+				
+				 if(formParamStruct.getKind() != actualParamStruct.getKind()) { //ako bi bili istog tipa, onda se ovde ne bi ni uslo, prostiji slucaj
+					if(actualParamStruct.getKind() != Struct.Array || actualParamStruct.getElemType().getKind() != formParamStruct.getKind()) {
+						validity = false;
+						report_error("U pozivu nije prosledjen isti tip ili element niza nije odgovarajuci tip!", exprWrapper.getExpr().getExprWhole());
+					}
+				}
+			}
+		}	
+	}	
+}

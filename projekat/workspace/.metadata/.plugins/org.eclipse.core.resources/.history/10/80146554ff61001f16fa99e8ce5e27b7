@@ -1,0 +1,345 @@
+package rs.ac.bg.etf.pp1;
+
+import java_cup.runtime.*;
+import org.apache.log4j.*;
+import rs.ac.bg.etf.pp1.ast.*;
+
+parser code {:
+
+	boolean errorDetected;
+	Logger log = Logger.getLogger(getClass());
+   
+   
+    // slede redefinisani metodi za prijavu gresaka radi izmene teksta poruke
+     
+    public void report_fatal_error(String message, Object info) throws java.lang.Exception {
+      errorDetected = true;
+      done_parsing();
+      report_error(message, info);
+    }
+  
+    public void syntax_error(Symbol cur_token) {
+        report_error("\nSintaksna greska", cur_token);
+    }
+  
+    public void unrecovered_syntax_error(Symbol cur_token) throws java.lang.Exception {
+        report_fatal_error("Fatalna greska, parsiranje se ne moze nastaviti", cur_token);
+    }
+
+    public void report_error(String message, Object info) {
+    	StringBuilder msg = new StringBuilder(message); 
+    	if (info instanceof Symbol)
+            msg.append (" na liniji ").append(((Symbol)info).left);
+        log.error(msg.toString());
+    }
+
+:}
+
+init with {:
+	errorDetected = false;
+:}
+
+scan with {:
+	Symbol s = this.getScanner().next_token();
+	if (s != null && s.value != null) 
+		log.info(s.toString() + " " + s.value.toString());
+	return s;
+:}
+
+terminal PROG, PRINT, READ, RETURN, VOID, NAMESPACE, CONST, NEW, TRUE, FALSE;
+terminal Integer NUMBER;
+terminal String IDENT;
+terminal TYPE_INT, TYPE_CHAR, TYPE_BOOL, PLUS, MINUS, TIMES, DIVIDE, MOD;
+terminal INCREMENT, DECREMENT, EQUAL, SCOPE, SEMI, COMMA;
+terminal LPAREN, RPAREN, LBRACKET, RBRACKET, LBRACE, RBRACE;
+terminal String CHAR;
+
+nonterminal Program, ProgName, GlobalDeclarations, MultipleDeclarationsList, SingleDeclaration, GlobalVarType;
+nonterminal GlobalVarList, GlobalVarOption, GlobalVarArray, ConstDeclList, ConstValues, ConstDeclOption;
+nonterminal NamespaceList, SingleNamespace, NameOfNamespace, NamespaceDeclarations, VarDeclRootList, VarDeclRoot, VarDeclList;
+nonterminal VarDecl, VarDeclArray, MethodDeclListWrapper, MethodDeclList, MethodDecl, MethName, RetTypeWrapper, RetType, FormPars;
+nonterminal FormalParamList, FormalParamDecl, Type, TypeWithScope, StatementListWrapper, StatementList, Statement, Expr;
+nonterminal ExprWhole, Minus, Term, Factor, NumConst, CharConst, BoolConst, ActualPars, ActualParamList;
+nonterminal Designator, DesignatorArray, DesignatorWithScope, DesignatorStatement, Addop, Mulop;
+nonterminal GlobalVarTypeChoose, BeforeArrayElementExpr, MinusWrapper, BeforeExpr, MethLBRACE, MethLPAREN;
+nonterminal ExprInActParam, BeforeNewArrayBracket, FuncCallDesignator;
+
+nonterminal TwoDimensionCreate, TwoDimensionDesignator, BeforeMatrixFactor, BeforeMatrixDesignator;
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+Program ::= (Program) PROG ProgName:p NamespaceList GlobalDeclarations LBRACE MethodDeclListWrapper RBRACE;	
+
+ProgName ::= (ProgName) IDENT:progName;							
+
+GlobalDeclarations ::= (CompleteGlobalDeclarationsList) MultipleDeclarationsList 
+						|
+						(NoGlobalDeclarationsList) /* epsilon */
+						;
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/			
+NamespaceList ::= (CompleteNamespaceList) NamespaceList SingleNamespace
+				|
+				(NoNamespaceList) /* epsilon */
+				;
+
+SingleNamespace ::= (SingleNamespace) NAMESPACE NameOfNamespace:nn LBRACE NamespaceDeclarations LBRACE MethodDeclListWrapper RBRACE RBRACE;
+
+NameOfNamespace ::= (NameOfNamespace) IDENT:nameOfName;
+
+NamespaceDeclarations ::= (CompleteNamespaceDeclarationsList) MultipleDeclarationsList
+						|
+						(NoNamespaceDeclarationsList) /* epsilon */
+						;
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/				
+MultipleDeclarationsList ::= (CompleteMultipleDeclarationsList) MultipleDeclarationsList SingleDeclaration							 
+							|
+							(MultipleDeclarationsListSingleDeclaration) SingleDeclaration
+							;
+			
+SingleDeclaration ::= (SingleVarDeclaration) GlobalVarType GlobalVarList SEMI
+					|
+					(SingleConstDeclaration) CONST GlobalVarType ConstDeclList SEMI
+					|
+					(SingleDeclarationErrorSemi) error SEMI:l
+					{:  parser.report_error("Izvrsen oporavak do ; u liniji " + lleft, null); :} 
+					;	
+			
+GlobalVarType ::= (GlobalVarType) GlobalVarTypeChoose;
+				
+GlobalVarTypeChoose ::= (GlobalVarTypeChooseInt) TYPE_INT
+				|
+				(GlobalVarTypeChooseChar) TYPE_CHAR
+				|
+				(GlobalVarTypeChooseBool) TYPE_BOOL
+				;					
+						
+GlobalVarList ::= (SingleGlobalVarList) GlobalVarList COMMA GlobalVarOption			
+				|
+				(GlobalVarListErrorComma) GlobalVarList error COMMA GlobalVarOption
+				|
+				(GlobalVarListSingleGlobalVar) GlobalVarOption
+				;
+
+GlobalVarOption ::= (GlobalVarOption) IDENT:varName GlobalVarArray; 				/* dodali labelu */
+
+GlobalVarArray ::= (GlobalVarArrayPresent) LBRACKET RBRACKET
+					|
+					(GlobalVarMatrixPresent) LBRACKET RBRACKET LBRACKET RBRACKET
+					|
+					(NoGlobalVarArray) /* epsilon */
+					;
+
+ConstDeclList ::= (SingleConstDeclList) ConstDeclList COMMA ConstDeclOption
+					|
+					(ConstDeclListErrorComma) ConstDeclList error COMMA ConstDeclOption
+					|
+					(ConstDeclListSingleConstDecl) ConstDeclOption
+					; 									
+				
+ConstDeclOption ::= (ConstDeclOption) IDENT:constName EQUAL ConstValues;									
+					
+ConstValues ::= (NumberConstValue) NumNegativeConst                               
+				|
+				(CharacterConstValue) CharConst
+				|
+				(BooleanConstValue) BoolConst
+				;
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+VarDeclRootList ::= (CompleteVarDeclRootList) VarDeclRootList VarDeclRoot
+					|
+					(NoVarDeclRootList) /* epsilon */
+					;
+
+VarDeclRoot ::= (SingleVarDeclRoot) GlobalVarType:varType VarDeclList SEMI
+				|
+				(VarDeclRootErrorSemi) error SEMI:l
+				{:  parser.report_error("Izvrsen oporavak do ; u liniji " + lleft, null); :} 
+				;
+			
+VarDeclList ::= (ClassicVarDeclList) VarDeclList COMMA VarDecl
+				|
+				(VarDeclListErrorComma) VarDeclList error COMMA VarDecl 	
+				|
+				(VarDeclListSingleVarDecl) VarDecl
+				;
+		
+VarDecl ::= (VarDecl) IDENT:varDeclName VarDeclArray;
+
+VarDeclArray ::= (VarDeclArrayPresent) LBRACKET RBRACKET
+				|
+				(VarDeclMatrixPresent) LBRACKET RBRACKET LBRACKET RBRACKET
+				|
+				(NoVarDeclArray) /* epsilon */
+				;
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/			
+MethodDeclListWrapper ::= (MethodDeclListWrapper) MethodDeclList;
+
+MethodDeclList ::= (CompleteMethodDeclList) MethodDeclList MethodDecl
+					|
+					(NoMethodDeclList) /* epsilon */
+					;
+				
+MethodDecl ::= (MethodDecl) RetTypeWrapper MethName:methName MethLPAREN FormPars RPAREN VarDeclRootList MethLBRACE StatementListWrapper RBRACE;  			//ovde
+
+MethName ::= (MethName) IDENT:name;
+
+MethLPAREN ::= (MethLPAREN) LPAREN;
+MethLBRACE ::= (MethLBRACE) LBRACE;
+
+RetTypeWrapper ::= (RetTypeWrapper) RetType;
+
+RetType ::= (RetTypeInt) TYPE_INT
+			|
+			(RetTypeChar) TYPE_CHAR
+			|
+			(RetTypeBool) TYPE_BOOL
+			|
+			(RetTypeVoid) VOID
+			;
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/			
+FormPars ::= (SingleFormParamList) FormalParamList
+			  |
+			  (NoSingleFormParamList) /* epsilon */
+			  ;
+		  
+FormalParamList ::= (FormParamList) FormalParamList COMMA FormalParamDecl
+					|
+					(FormParamListSingleFormParam) FormalParamDecl
+					;
+				
+FormalParamDecl ::= (ArrayFormParam) GlobalVarType IDENT:varName LBRACKET RBRACKET
+					|
+					(SimpleFormParam) GlobalVarType IDENT:varName
+					;			
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/			
+Type ::= (Type) IDENT:typeName TypeWithScope;			
+		
+TypeWithScope ::= (TypeWithScopeBefore) SCOPE IDENT
+				|
+				(NoTypeWithScopeBefore) /* epsilon */
+				;		
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/			
+StatementListWrapper ::= (StatementListWrapper) StatementList;
+
+StatementList ::= (CompleteStatementList) StatementList Statement
+				|
+				(NoStatementList) /* epsilon */
+				;
+				
+Statement ::= (StatementAssignment) DesignatorStatement SEMI								
+			   |
+			   (StatementRead) READ LPAREN Designator RPAREN SEMI
+			   |
+			   (StatementPrintSimple) PRINT LPAREN Expr RPAREN SEMI
+			   |
+			   (StatementPrintExpanded) PRINT LPAREN Expr COMMA NumConst RPAREN SEMI
+			   |
+			   (ErrorInStatementSemmi) error SEMI:l
+			   {: parser.report_error("Izvrsen oporavak do ; u liniji " + lleft, null);  :}
+			   |
+			   (StatementReturnExpr) RETURN Expr:t SEMI
+			   |
+			   (StatementReturnEmpty) RETURN SEMI
+			   ;	   
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/			
+Expr ::= (Expr) MinusWrapper ExprWhole;
+
+ExprWhole ::= (ExprSummarizeTerms) ExprWhole:te Addop Term:t				//ovde
+			|
+			(ExprSingleTerm) Term:t
+			;
+			
+MinusWrapper ::= (MinusWrapper) Minus;			
+		
+Minus ::= (MinusExists) MINUS
+		|
+		(MinusDoesNotExist) /* epsilon */
+		;	
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+Term ::= (TermMultipleFactors) Term Mulop Factor:t							//ovde
+		|
+		(TermSingleFactor) Factor:t											//ovde
+		;
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+Factor ::= (NumberConstFactor) NumConst												//oznacio tamo const i var
+			|
+			(CharacterConstFactor) CharConst
+			|
+			(BooleanConstFactor) BoolConst
+			|
+			(ExprFactor) BeforeExpr Expr RPAREN
+			|
+			(DesignatorFactor) Designator:d											//ovde, kao i poziv funkcije pominjano
+			|
+			(NewArrayFactor) NEW GlobalVarType BeforeNewArrayBracket Expr RBRACKET TwoDimensionCreate
+			;
+			
+TwoDimensionCreate ::= (WithTwoDimensionsCreate) BeforeMatrixFactor Expr RBRACKET
+				|
+				(WithoutTwoDimensionsCreate) /* epsilon */
+				;
+			
+BeforeMatrixFactor ::= (BeforeMatrixFactor) LBRACKET;
+			
+BeforeExpr ::= (BeforeExpr) LPAREN;
+BeforeNewArrayBracket ::= (BeforeNewArrayBracket) LBRACKET;
+		
+NumConst ::= (NumConst) NUMBER:number;
+NumNegativeConst ::= (NumNegativeConst) NUMBERNEG:number;
+CharConst ::= (CharConst) CHAR:charValue;
+BoolConst ::= (BooleanConstTrue) TRUE
+			|
+			(BooleanConstFalse) FALSE
+			;
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/		
+ActualPars ::= (SingleActParamList) ActualParamList
+				|
+				(SingleNoActParamList) /* epsilon */
+				;
+		
+ActualParamList ::= (ActParamList) ActualParamList COMMA ExprInActParam
+					|
+					(ActualParamListSingleActParam) ExprInActParam
+					;
+
+ExprInActParam ::= (ExprInActParam) Expr;
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/				
+Designator ::= (Designator) IDENT:name DesignatorWithScope DesignatorArray;
+			
+DesignatorArray ::= (DesignatorArrayAfter) BeforeArrayElementExpr Expr RBRACKET TwoDimensionDesignator
+					|
+					(NoDesignatorArray) /* epsilon */;
+					
+TwoDimensionDesignator ::= (WithTwoDimensionsDesignator) BeforeMatrixDesignator Expr RBRACKET
+						|
+						(WithoutTwoDimensionsDesignator) /* epsilon */
+						;
+						
+BeforeMatrixDesignator ::= (BeforeMatrixDesignator) LBRACKET;
+				
+BeforeArrayElementExpr ::= (BeforeArrayElementExpr) LBRACKET;							
+			
+DesignatorWithScope ::= (DesignatorWithScopeBefore) SCOPE IDENT:name
+						|
+						(NoDesignatorWithScopeBefore) /* epsilon */
+						;			
+
+DesignatorStatement ::= (DesignatorEqual) Designator:dest EQUAL Expr:e
+						|
+						(DesignatorIncrement) Designator:dest INCREMENT
+						|
+						(DesignatorDecrement) Designator:dest DECREMENT
+						|
+						(StatementFuncCall) FuncCallDesignator LPAREN ActualPars RPAREN
+						;
+
+FuncCallDesignator ::= (FuncCallDesignator) Designator:dest;
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+Addop ::= (Addopp) PLUS
+		|
+		(Subop) MINUS
+		;
+Mulop ::= (Mulopp) TIMES
+		|
+		(Divop) DIVIDE
+		|
+		(Modop) MOD
+		;	

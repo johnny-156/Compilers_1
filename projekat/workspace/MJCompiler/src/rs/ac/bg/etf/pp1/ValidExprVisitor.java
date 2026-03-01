@@ -1,0 +1,449 @@
+package rs.ac.bg.etf.pp1;
+
+import rs.ac.bg.etf.pp1.ast.*;
+import rs.etf.pp1.symboltable.*;
+import rs.etf.pp1.symboltable.concepts.*;
+
+public class ValidExprVisitor extends MyVisitor {
+	
+	public Struct exprType;
+	public boolean validity;
+	
+	public boolean compatibility;
+	public boolean multipleForbiddenFactors;
+	public boolean detectedArrayReference;
+	public int level;	
+	public int termCounter;
+	public boolean hasMinus;
+	public Obj exprObj;
+	public String exprDesignatorName;
+	
+	public Struct newArrayType; //zapamcen stvarni tip elementa novostvorenog niza
+	public boolean newArrayDefinition; // da li smo u izrazu uhvatili newArrayDefinition
+	public boolean shouldCheckForReferenceDetection;
+	
+	public ValidExprVisitor() {
+		level = 0;
+		validity = true;
+		compatibility = true;
+		multipleForbiddenFactors = false;
+		shouldCheckForReferenceDetection = true;
+		exprType = null;
+	}
+	
+	public void visit(Expr expr) {		
+		
+		if (level > 0) { //ovde brojac smanjujemo jer time zavrsavamo sa ugnjezdavanjem
+			level--;
+			return; //necemo nastavljati proveru, jer samo zelimo da obradimo Expr pre smene iznad njega
+		}
+		
+		if (!compatibility) {
+			report_error("Operandi izraza nisu kompatibilni!", expr.getExprWhole()); //korisceno Whole, jer nas je zezalo za ispis
+		} else if (multipleForbiddenFactors) {
+			report_error("Nije dozvoljeno sabirati vise bool ili char operanada!", expr.getExprWhole());
+		} 
+		
+		if (shouldCheckForReferenceDetection) { //smena kada se uvodi niz mora da bude sama i jedino sme referenca na niz da bude u izrazu(bez [...])
+			 if (detectedArrayReference && !newArrayDefinition) { //provera da se u okviru izraza ne koristi referenca za niz, a da je bez [indexa]
+				report_error("Nije dozvoljeno koriscenje nizovnih referenci u izrazu!", expr.getExprWhole());
+			 }
+		} else { //ne bi trebalo proveravati, pa okrecemo validity, jer je stavljen ranije na false u sklopu provera, a zapravo ovde je izuzetak
+			if (!validity) {
+				validity = true;
+			}
+		}
+	}
+	
+	public void visit(MinusExists me) { //hvatamo situaciju u kojoj je minus dodat, ali ne onda minus u sklopu negativnog broja
+		hasMinus = true;
+	}
+	
+	public void visit(NumberConstFactor number) {
+		if (level > 0 || !validity) { //ako postoji potreba za poniranjem, onda idemo na najdublji nivo, pa zaustavljamo obradjivanje bilo cega na visem nivou
+			return;		 			//vrv sused ali u ugnjezdenom vec, pa da se ne bi izvrsio pre: e[e[2] + 2], ali ako je u nivou, onda sme i level nije >0 
+		}
+		int numberInt = number.getNumConst().getNumber(); //dohvatanje brojevne vrednosti, u kojoj se moze pojaviti -, sto je jos u LEX definisano
+		
+		if (numberInt < 0 && termCounter > 0) { // return d + -1 + -1, zato koristimo brojac termCounter, jer sam jedan negativan nije problem, dok nije u sredini
+			report_error("Nije dozvoljeno koristiti negativne brojeve u sred izraza!", number);
+			validity = false;
+			return;
+		}
+		if (numberInt < 0 && hasMinus) { //situacija duplog minusa na pocetku, koju necemo dozvoliti, a smena bi je sama po sebi dozvolila
+			report_error("Prvi clan izraza je negativan a minus postoji ispred!", number);			
+			validity = false;
+			return;
+		}
+		
+		acceptChange(Tab.intType);
+		termCounter++; //broji sve one sabirke koji su regularni, bez obzira koje su vrste, dodato i dole u ova dva, a i u designator
+	}
+	
+	public void visit(CharacterConstFactor character) {
+		if (level > 0 || !validity) {
+			return;
+		}
+		if (termCounter == 0 && hasMinus) { //ovde dodat deo za proveru -'c', kao i dole za -true, da ne stoji gore, jer nije setovan lepo exprType
+			report_error("Minus ne moze stajati ispred vrednosti koja je tipa char!", character);
+			validity = false;
+			return;
+		}
+		acceptChange(Tab.charType);
+		termCounter++;
+	}
+	
+	public void visit(BooleanConstFactor booleanFactor) {
+		if (level > 0 || !validity) {
+			return;
+		}
+		if (termCounter == 0 && hasMinus) {
+			report_error("Minus ne moze stajati ispred vrednosti koja je tipa bool!", booleanFactor);
+			validity = false;
+			return;
+		}
+		acceptChange(new Struct(Struct.Bool));
+		termCounter++;
+	}
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/	
+	public void visit(BeforeArrayElementExpr e) { //kada naidjemo na zagradu, mi povecamo level brojac, zbog ugnjezdenosti
+		level++;
+	}
+	
+	public void visit(BeforeExpr be) { //kada naidjemo na ugnjezden Expr
+		level++;
+	}
+	
+	public void visit(ExprFactor ef) { //obilazak napisan za (, tj kada naidje na ugnjezdeni Expr, ranije za [, je to obuhvatila obrada Desinatora
+		if (level > 0 || !validity) {
+			return;
+		}
+		ValidExprVisitor visitor = new ValidExprVisitor();
+		visitor.setErrorOccurredObject(error);
+		ef.getExpr().traverseBottomUp(visitor); //obisao za Expr, obrati paznju
+		newArrayDefinition = visitor.newArrayDefinition; //prosledjivanje flega za inicijalizaciju niza na trenutni nivo ugnjezdavanja
+		//propagiranje nagore
+		if (!visitor.validity) { //ako je visitor nakon obilaska vratio fleg da nije validno, onda preskacemo ostatak koda
+			// za slucaj ( <Expr> ) , ako se dogodi da rezultat obilaska expr nije dobra, to znaci da taj rezultat sada treba proglasiti
+			// kao da this.validity nije dobar, i na taj nacin propagirati validity sve do onog prvog koji je pozvao ovaj obilazak
+			validity = false;	//pripaziti na pozivanje istog visitora iz istog visitora, jer onda mora obezbediti propagiranje vrednosti nagore
+    		return;				//fakticki dodje provera za niz ali na nivou onoga sto je pozvano, tj. return pa ime niza samo
+		}
+    	if (visitor.newArrayDefinition) { //acceptChange() se nije radio ukoliko imamo inicijalizaciju niza
+    		// niz = (new int [3]);
+    		if (visitor.termCounter > 1) { //provera dodatnih faktora u izrazu, ali na visim nivoima ugnjezdavanja
+    			report_error("Kreiranje niza mora biti usamljeno u izrazu sa desne strane znaka jednako!", ef);
+    			validity = false;
+    			return;
+    		}
+    		exprType = visitor.exprType; //prosledjivanje naseg ranije definisanog tipa
+    	} else { //obezbedili smo da operand ne bude gola referenca niza, zato pozivamo acceptChange(), sa drugim argumentom true
+    		acceptChange(visitor.exprType);
+    	}    	
+    	termCounter++;
+	}
+	
+	public void acceptChange(Struct newStruct) { //ovde smo izvukli prvobitne provere koje su se radile u Expr, za operande medjusobno
+		acceptChange(newStruct, true);		
+	}
+	
+	//svuda gde nemamo [] u produzetku, prosledjivali smo true(sa jednim parametrom), a gde smo imali sigurno produzetak, tu smo false
+	public void acceptChange(Struct newStruct, boolean shouldCheckForArrayReference) { //uopste ovde ne ulazi u prvi if
+		if (shouldCheckForArrayReference && (newStruct.getKind() == Struct.Array || newStruct.getKind() == Struct.Enum)) { //kada se niz nadje sam u return izrazu
+			detectedArrayReference = true;
+			validity = false;
+			return;
+		}		
+		
+		if (exprType == null) { //za dodavanje, ako nista pre toga nije bilo u izrazu
+			exprType = newStruct;
+		} else if (exprType.getKind() != newStruct.getKind()) { //ako su po tipu razliciti, nikakva operacija izmedju njih se ne moze izvrsiti
+			compatibility = false;
+		} else if (newStruct.getKind() != Tab.intType.getKind()) { //ako su jednaki, to ostaje od else, a pritom se razlikuje jedan od int, samim tim oba
+			multipleForbiddenFactors = true;
+		}			
+	}
+
+	public void visit(Designator designator) { 
+		if (!validity || level > 0) { //koci se ulazak u proveravanje designatora, ako je u pitanju niz, ili ako postoji pocetak ugnjezdavanja, pa treba da poniremo
+			return;
+		}
+		
+		if(designator.getDesignatorWithScope() instanceof NoDesignatorWithScopeBefore) { //nema scope
+			if(designator.getDesignatorArray() instanceof NoDesignatorArray) { //nema niz
+				String designatorName = designator.getName();
+				Obj symbol = Tab.find(designatorName);
+				if (symbol == Tab.noObj) {
+					report_error("Ime "+ designator.getName()+" nije ranije deklarisano, da bi mogli da ga koristimo! ", designator);
+					validity = false; //da se signalizira nevalidna situacija, da zaustavi return, da se ne obradjuje ako vec ovo ne valja
+				} else {
+					exprObj = symbol;
+					exprDesignatorName = symbol.getName();
+					boolean shouldCheckForArrayReference = (symbol.getType().getKind() == Struct.Array || symbol.getType().getKind() == Struct.Enum) ? false : true;
+					acceptChange(Tab.find(designatorName).getType(), shouldCheckForArrayReference);					
+				}
+				
+			} else if(((DesignatorArrayAfter)designator.getDesignatorArray()).getTwoDimensionDesignator() instanceof WithoutTwoDimensionsDesignator){ //ima niz
+				String designatorName = designator.getName();
+				Obj symbol = Tab.find(designatorName);
+				if (symbol == Tab.noObj) {
+					report_error("Ime "+ designator.getName()+" nije ranije deklarisano, da bi mogli da ga koristimo! ", designator);
+					validity = false;
+				} else {
+					
+					if (symbol.getType().getKind() != Struct.Array) { //referenca koju pronadjemo bi morala biti niz, znaci samo o imenu govorimo, ne niz[expr]
+						report_error("Ime "+ designator.getName()+" nije niz po deklaraciji! ", designator);
+						validity = false;
+						return;
+					}
+					exprObj = symbol;
+					exprDesignatorName = symbol.getName() + "[]";
+					
+					ValidExprVisitor visitor = new ValidExprVisitor();
+			    	visitor.setErrorOccurredObject(error);
+			    	((DesignatorArrayAfter)designator.getDesignatorArray()).getExpr().traverseBottomUp(visitor); //obilazak expr, u saglasnosti sa [ iz gramatike
+			    	
+			    	if (!visitor.validity) { //ako je visitor nakon obilaska vratio fleg da nije validno, onda preskacemo ostatak koda
+			    		validity = false;	//propagiranje vrednosti validity
+			    		return;				//jedna mogucnost:fakticki dodje provera za niz ali na nivou onoga sto je pozvano, tj. return pa ime niza samo
+			    	}
+			    	
+			    	if(visitor.exprType.getKind() != Tab.intType.getKind()) { //provera za tip argumenta niza, ali pristupljenog elementa niza
+						report_error("Argument niza "+ designator.getName() + " nije int tipa! ", designator);
+						validity = false;
+						return;
+					}
+			    	
+			    	acceptChange(symbol.getType().getElemType(), false); //sada konacno radimo proveru nad tipom elementa izraza, koji je za nas relevantan
+				}
+			} else if(((DesignatorArrayAfter)designator.getDesignatorArray()).getTwoDimensionDesignator() instanceof WithTwoDimensionsDesignator){ //ima matricu
+				String designatorName = designator.getName();
+				Obj symbol = Tab.find(designatorName);
+				if (symbol == Tab.noObj) {
+					report_error("Ime "+ designator.getName()+" nije ranije deklarisano, da bi mogli da ga koristimo! ", designator);
+					validity = false;
+				} else {
+					
+					if (symbol.getType().getKind() != Struct.Enum) { //referenca koju pronadjemo bi morala biti niz, znaci samo o imenu govorimo, ne niz[expr]
+						report_error("Ime "+ designator.getName()+" nije matrica po deklaraciji! ", designator);
+						validity = false;
+						return;
+					}
+					exprObj = symbol;
+					exprDesignatorName = symbol.getName() + "[][]";
+					
+					ValidExprVisitor visitor1 = new ValidExprVisitor();
+			    	visitor1.setErrorOccurredObject(error);
+			    	((DesignatorArrayAfter)designator.getDesignatorArray()).getExpr().traverseBottomUp(visitor1); //obilazak expr, u saglasnosti sa [ iz gramatike
+			    	
+			    	if (!visitor1.validity) { //ako je visitor nakon obilaska vratio fleg da nije validno, onda preskacemo ostatak koda
+			    		validity = false;	//propagiranje vrednosti validity
+			    		return;				//jedna mogucnost:fakticki dodje provera za niz ali na nivou onoga sto je pozvano, tj. return pa ime niza samo
+			    	}
+			    	
+			    	if(visitor1.exprType.getKind() != Tab.intType.getKind()) { //provera za prvi tip argumenta matrice
+						report_error("Prvi argument matrice "+ designator.getName() + " nije int tipa! ", designator);
+						validity = false;
+						return;
+					}
+			    	
+			    	ValidExprVisitor visitor2 = new ValidExprVisitor();
+			    	visitor2.setErrorOccurredObject(error);
+			    	((WithTwoDimensionsDesignator)((DesignatorArrayAfter)designator.getDesignatorArray()).getTwoDimensionDesignator()).getExpr().traverseBottomUp(visitor2);
+			    	
+			    	if(!visitor2.validity) {
+			    		validity = false;
+			    		return;
+			    	}
+			    	
+			    	if(visitor2.exprType.getKind() != Tab.intType.getKind()) { //provera za drugi tip argumenta matrice
+						report_error("Drugi argument matrice "+ designator.getName() + " nije int tipa! ", designator);
+						validity = false;
+						return;
+					}
+			    	
+			    	acceptChange(symbol.getType().getElemType(), false); //sada konacno radimo proveru nad tipom elementa izraza, koji je za nas relevantan
+				}
+			}
+//******************************nema namespace**************************************************************************************************************			
+		} else { //ima scope
+			if(designator.getDesignatorArray() instanceof NoDesignatorArray) { //nema niz
+				String namespaceName = designator.getName();
+				String designatorName = ((DesignatorWithScopeBefore)designator.getDesignatorWithScope()).getName();
+
+				Obj namespaceObj = Tab.find(namespaceName); //zapamceno najvise za posle
+				if (namespaceObj == Tab.noObj) {
+					report_error("Ime "+ namespaceName +" nije ranije deklarisano, da bi mogli da ga koristimo! ", designator);
+					validity = false; //da se signalizira nevalidna situacija, da zaustavi return, da se ne obradjuje ako vec ovo ne valja
+					return;
+				}
+				
+				boolean foundDesignator = false; //fleg za pronadjenost
+				Obj designatorObj = null;
+				Struct designatorStruct = null; //fleg za pronadjeni konkretan, koji zelimo da pronadjemo spremljen
+				for(Obj o : namespaceObj.getLocalSymbols()) { //prodjemo putem for kroz sve lokalne simbole naseg namespace
+					if (o.getName().equals(designatorName)) { //ako pronadjemo medju njima odgovarajuci, onda to zapisujemo u 2 flega i prekidamo for
+						foundDesignator = true;
+						designatorObj = o;
+						designatorStruct = o.getType();
+						break;
+					}
+				}
+				
+				if (!foundDesignator) { //ako nije pronadjeno, ime javimo gresku
+					report_error("Ime "+ designatorName +" nije ranije deklarisano u namespace-u " + namespaceName + ", da bi mogli da ga koristimo! ", designator);
+					validity = false;
+				} else {
+					exprObj = designatorObj;
+					exprDesignatorName = namespaceName + "::" + designatorName;
+					acceptChange(designatorStruct, false); //u suprotnom za to ime radimo proveru
+				}
+				
+			} else { //ima niz
+				String namespaceName = designator.getName();
+				String designatorName = ((DesignatorWithScopeBefore)designator.getDesignatorWithScope()).getName();
+
+				Obj namespaceObj = Tab.find(namespaceName); //zapamceno najvise za posle
+				if (namespaceObj == Tab.noObj) {
+					report_error("Ime "+ namespaceName +" nije ranije deklarisano, da bi mogli da ga koristimo! ", designator);
+					validity = false; //da se signalizira nevalidna situacija, da zaustavi return, da se ne obradjuje ako vec ovo ne valja
+					return;
+				}
+				
+				boolean foundDesignator = false; //fleg za pronadjenost
+				Obj designatorObj = null;
+				Struct designatorStruct = null; //fleg za pronadjeni konkretan, koji zelimo da pronadjemo spremljen
+				for(Obj o : namespaceObj.getLocalSymbols()) { //prodjemo putem for kroz sve lokalne simbole naseg namespace
+					if (o.getName().equals(designatorName)) { //ako pronadjemo medju njima odgovarajuci, onda to zapisujemo u 2 flega i prekidamo for
+						foundDesignator = true;
+						designatorObj = o;
+						designatorStruct = o.getType();
+						break;
+					}
+				}
+				
+				if (!foundDesignator) { //ako nije pronadjeno, ime javimo gresku
+					report_error("Ime "+ designatorName +" nije ranije deklarisano u namespace-u " + namespaceName + ", da bi mogli da ga koristimo! ", designator);
+					validity = false;
+				} else {
+					
+					if (designatorStruct.getKind() != Struct.Array) { //referenca koju pronadjemo bi morala biti niz, znaci samo o imenu govorimo, ne niz[expr]
+						report_error("Ime "+ designatorName+" nije niz po deklaraciji! ", designator);
+						validity = false;
+						return;
+					}
+					exprObj = designatorObj;
+					exprDesignatorName = namespaceName + "::" + designatorName + "[]";
+					
+					ValidExprVisitor visitor = new ValidExprVisitor();
+			    	visitor.setErrorOccurredObject(error);
+			    	((DesignatorArrayAfter)designator.getDesignatorArray()).getExpr().traverseBottomUp(visitor); //obilazak expr, u saglasnosti sa [ iz gramatike
+			    	
+			    	if (!visitor.validity) { //ako je visitor nakon obilaska vratio fleg da nije validno, onda preskacemo ostatak koda
+			    		validity = false;	//propagiranje vrednosti validity
+			    		return;				//jedna mogucnost:fakticki dodje provera za niz ali na nivou onoga sto je pozvano, tj. return pa ime niza samo
+			    	}
+			    	
+			    	if(visitor.exprType.getKind() != Tab.intType.getKind()) { //provera za tip argumenta niza, ali pristupljenog elementa niza
+						report_error("Argument niza "+ designatorName + " nije int tipa! ", designator);
+						validity = false;
+						return;
+					}
+			    		
+					acceptChange(designatorStruct.getElemType(), false); //sada konacno radimo proveru nad tipom elementa izraza, koji je za nas relevantan
+				}
+			}
+		}
+		termCounter++;
+	}
+/*----------------------------------------------------------------------------------------------------------------------------------------------------------*/
+	public void visit(BeforeNewArrayBracket bnab) {
+		level++;
+	}
+	public void visit(NewArrayFactor arrayDeclaration) { //za matricu koristimo Struct.Enum
+		//deo za obilazak Expr, u kombinaciji sa smenom za zagradu
+    	if (level > 0 || !validity) {
+			return;
+		}
+    	
+    	//deo za samostalan ovakav faktor
+		if (termCounter > 0) {
+			report_error("Samo jedna inizijalizacija niza moze da sama postoji sa desne strane znaka =, nista vise sa njom ne moze biti!", arrayDeclaration);
+			validity = false;
+			return;
+		}
+		
+		//izvlacenje GlobalVarType
+		GlobalVarType type = arrayDeclaration.getGlobalVarType();
+		if(type.getGlobalVarTypeChoose() instanceof GlobalVarTypeChooseInt) {
+			this.newArrayType = Tab.intType;
+		} else if(type.getGlobalVarTypeChoose() instanceof GlobalVarTypeChooseChar) {
+			this.newArrayType = Tab.charType;
+		} else if(type.getGlobalVarTypeChoose() instanceof GlobalVarTypeChooseBool) {
+			this.newArrayType = new Struct(Struct.Bool);
+		}
+    	
+		ValidExprVisitor visitor1 = new ValidExprVisitor(); //obilazak expr u prvoj zagradi
+		visitor1.setErrorOccurredObject(error);
+		arrayDeclaration.getExpr().traverseBottomUp(visitor1);
+		
+		if (!visitor1.validity) { //propagiranje validity
+			validity = false;
+    		return;
+		}
+		
+    	if(arrayDeclaration.getTwoDimensionCreate() instanceof WithoutTwoDimensionsCreate) { //ako je niz
+    		
+    		if(visitor1.exprType.getKind() != Tab.intType.getKind()) {
+    			report_error("Indeks koji alocira velicinu niza nije int tipa!", arrayDeclaration);
+    			validity = false;
+    			return;
+    		}
+        	
+        	//krajnje iniciranje da bi se tamo uklopilo
+        	this.exprType = new Struct(Struct.Array);
+        	this.exprType.setElementType(this.newArrayType);
+        	
+    		
+    	}else { //ako je u pitanju matrica
+    		
+    		if(visitor1.exprType.getKind() != Tab.intType.getKind()) {
+    			report_error("Indeks koji alocira broj reda nije int tipa!", arrayDeclaration);
+    			validity = false;
+    			return;
+    		}
+    		
+    		ValidExprVisitor visitor2 = new ValidExprVisitor(); //obilazak expr u drugoj zagradi
+    		visitor2.setErrorOccurredObject(error);
+    		((WithTwoDimensionsCreate)arrayDeclaration.getTwoDimensionCreate()).getExpr().traverseBottomUp(visitor2);
+    		
+    		if (!visitor2.validity) { //propagiranje validity
+    			validity = false;
+        		return;
+    		}
+    		
+    		if(visitor2.exprType.getKind() != Tab.intType.getKind()) {
+    			report_error("Indeks koji alocira broj kolone nije int tipa!", arrayDeclaration);
+    			validity = false;
+    			return;
+    		}
+    		
+    		//krajnje iniciranje da bi se tamo uklopilo
+        	this.exprType = new Struct(Struct.Enum);
+        	this.exprType.setElementType(this.newArrayType);
+    		
+    	}   
+    	
+    	newArrayDefinition = true; //da razdvoji od uobicajene provere
+    	termCounter++;
+	}
+	
+	
+	public void visit(BeforeMatrixFactor bmf) {
+		level++;
+	}
+	
+	public void visit(BeforeMatrixDesignator bmd) {
+		level++;
+	}
+}

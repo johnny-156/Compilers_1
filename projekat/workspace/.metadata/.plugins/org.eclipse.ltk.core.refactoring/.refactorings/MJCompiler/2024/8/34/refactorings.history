@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<session version="1.0">
+<refactoring comment="Rename method &apos;rs.ac.bg.etf.pp1.StatementReadDesignatorVisitor.initiateMatrix()&apos; to &apos;matrixAction&apos;&#x0D;&#x0A;- Original project: &apos;MJCompiler&apos;&#x0D;&#x0A;- Original element: &apos;rs.ac.bg.etf.pp1.StatementReadDesignatorVisitor.initiateMatrix()&apos;&#x0D;&#x0A;- Renamed element: &apos;rs.ac.bg.etf.pp1.StatementReadDesignatorVisitor.matrixAction()&apos;&#x0D;&#x0A;- Update references to refactored element" delegate="false" deprecate="false" description="Rename method &apos;initiateMatrix&apos;" flags="589826" id="org.eclipse.jdt.ui.rename.method" input="/src&lt;rs.ac.bg.etf.pp1{StatementReadDesignatorVisitor.java[StatementReadDesignatorVisitor~initiateMatrix" name="matrixAction" references="true" stamp="1724497357896" version="1.0"/>
+</session>

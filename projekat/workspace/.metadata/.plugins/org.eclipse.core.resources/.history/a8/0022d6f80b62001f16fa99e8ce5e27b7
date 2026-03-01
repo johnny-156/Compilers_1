@@ -1,0 +1,32 @@
+// Test301
+
+program test301
+
+	const int nula = 1;
+	const int jedan = 1;
+	const int pet = 5;
+
+	int niz[];
+	char nizch[];
+	int mat[][];
+
+	int a;
+	
+{
+	void main()	
+		int bodovi;
+		bool bt;
+		int matLokal[][];
+		bool lokal[][];
+	{
+	
+		matLokal = new int[2][bodovi+3];
+		
+		bodovi = matLokal[1][1];
+		
+		matLokal[1][1] = 2;
+		
+		lokal = new bool[2][3];
+		
+	}
+}

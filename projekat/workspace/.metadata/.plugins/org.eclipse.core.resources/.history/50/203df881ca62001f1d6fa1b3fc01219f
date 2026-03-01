@@ -1,0 +1,36 @@
+// Test301
+
+program test301
+
+	const int nula = 1;
+	const int jedan = 1;
+	const int pet = 5;
+
+	int niz[];
+	char nizch[];
+	int mat[][];
+
+	int a;
+	
+{
+	void main()	
+		int bodovi[];
+		bool bt[];
+		char bc[];
+		int matLokal[][];
+		bool lokal[][];
+		char karakteri[][];
+	{
+		
+		karakteri = new char[3][3];
+		karakteri[2][2] = 'h';
+		
+		matLokal = new int[3][3];
+		
+		
+		print(matLokal[2][2]);
+		read(matLokal[2][2]);
+		matLokal[2][2]++;
+		print(matLokal[2][2]);
+	}
+}

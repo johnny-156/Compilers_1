@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<qualifiedTypeNameHistroy>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ast.Unmatched"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.IfVisitor"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ast.SyntaxNode"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ast.VarDecl"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ast.ProgName"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ast.StatementPrintSimple"/>
+    <fullyQualifiedTypeName name="rs.etf.pp1.symboltable.visitors.DumpSymbolTableVisitor"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.DumpSymbolTableCustomVisitor"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ast.Program"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ast.VisitorAdaptor"/>
+    <fullyQualifiedTypeName name="org.apache.log4j.Logger"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ast.GlobalVarOption"/>
+    <fullyQualifiedTypeName name="java.util.concurrent.atomic.AtomicBoolean"/>
+    <fullyQualifiedTypeName name="rs.etf.pp1.symboltable.Tab"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.DeclarationsVisitor"/>
+    <fullyQualifiedTypeName name="rs.etf.pp1.symboltable.structure.SymbolDataStructure"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.MethodVisitor"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ast.MinusWrapper"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ast.MinusExists"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ast.GlobalVarType"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.OverrideValidExprVisitor"/>
+    <fullyQualifiedTypeName name="java.io.FileOutputStream"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.StatementFuncCallVisitor"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.NamespaceVisitor"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ast.MethName"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.MyVisitor"/>
+    <fullyQualifiedTypeName name="rs.etf.pp1.symboltable.concepts.Obj"/>
+    <fullyQualifiedTypeName name="rs.etf.pp1.symboltable.concepts.Scope"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ast.NumConst"/>
+    <fullyQualifiedTypeName name="rs.etf.pp1.mj.runtime.Code"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.StatementReadDesignatorVisitor"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.SemanticAnalyzer"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.CodeGenerator"/>
+    <fullyQualifiedTypeName name="rs.etf.pp1.symboltable.concepts.Struct"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ValidExprVisitor"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ast.WithoutTwoDimensionsCreate"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ast.WithTwoDimensionsCreate"/>
+    <fullyQualifiedTypeName name="rs.ac.bg.etf.pp1.ast.WithTwoDimensionsDesignator"/>
+</qualifiedTypeNameHistroy>
